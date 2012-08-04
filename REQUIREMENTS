@@ -1,0 +1,19 @@
+Requirements
+============================
+
+Linux kernel >=2.6.14
+
+IP Userspace queueing via NETLINK (symbol IP_NF_QUEUE) must  *NOT* be enabled!
+"NFQUEUE" target Support (symbol NETFILTER_XT_TARGET_NFQUEUE) kernel support
+
+  │     -> Networking support (NET [=y])
+  │       -> Networking options
+  │         -> Network packet filtering framework (Netfilter) (NETFILTER [=y])
+  │           -> Core Netfilter Configuration
+  │             -> Netfilter Xtables support (required for ip_tables) (NETFILTER_XTABLES [=y])     
+  │   Depends on: NET [=y] && INET [=y] && NETFILTER [=y] && NETFILTER_XTABLES [=y] && NETFILTER_ADVANCED [=y]
+
+python-2.7
+python-nfqueue (runtime: libnetfilter-queue, build-time: libnetfilter-queue, swig, cmake)
+scapy oder dpkt ?
+
