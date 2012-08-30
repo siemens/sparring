@@ -15,5 +15,4 @@ IP Userspace queueing via NETLINK (symbol IP_NF_QUEUE) must  *NOT* be enabled!
 
 python-2.7
 python-nfqueue (runtime: libnetfilter-queue, build-time: libnetfilter-queue, swig, cmake)
-scapy oder dpkt ?
-
+dpkt

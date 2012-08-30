@@ -1,12 +1,28 @@
 import dpkt
-import gzip, StringIO
+import stats
+import urlparse
 from socket import AF_INET, AF_INET6, inet_ntoa
 
 
 def init(mode):
   return Http(mode)
 
+class Httpstats(stats.Stats):
+  def __init__(self):
+    self.cats['Server'] = {}
+  def addserver(self, server, proxy = None):
+    self.cats['Server'][server[0]] = [ server[1], proxy ]
+  def setproxy(self, server, proxy): 
+    self.cats['Server'][server[0]] = [ server[1], proxy ]
+  def addget(self, server, host, uri):
+    if not server in self.cats:
+      self.addserver(server)
+    self.cats['Server'][server[0]] += [ host, uri ]
+
 class Http():
+  stats = Httpstats()
+  servers = {}
+
   def __init__(self, mode):
     # one of TRANSPARENT, FULL, HALF
     self.mode = mode
@@ -15,49 +31,72 @@ class Http():
   def protocols(self):
     return ['http']
 
-  def classify(self, data):
-    if data.split('\n')[0][-9:][:5] == 'HTTP/' or data.split('\n')[0][:5] == 'HTTP/':
-      return True
-    else:
-      return False
+  def classify(self, conn):
+    return (conn.incoming.split('\n')[0].startswith('HTTP/') or conn.outgoing.split('\n')[0][-9:][:5] == 'HTTP/')
 
-  def handle(self, pkt, data):
+  def get_stats(self):
+    print self.stats
+    #for server, details in self.servers.items():
+    #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
+
+  def handle(self, conn):
+
+    # gather stats
     if self.mode == 'TRANSPARENT':
-      return self.handle_transparent(pkt, data)
+      return self.handle_transparent(conn)
     if self.mode == 'HALF':
-      return self.handle_half(pkt, data)
+      return self.handle_half(conn)
     if self.mode == 'FULL':
-      return self.handle_full(pkt, data)
+      return self.handle_full(conn)
 
-  def handle_transparent(self, pkt, data):
-    """ pkt is ip data, data is tcp _payload (i.e. tcp.data)  """
-    tcp = pkt.data
-    print "HTTP     %s:%d->%s:%d   (%d)" % (inet_ntoa(pkt.src), tcp.sport, inet_ntoa(pkt.dst), tcp.dport, tcp.seq)
+  def handle_transparent(self, conn):
+    # be careful to count the connection for http://server,
+    # not the proxy server (conn.server)!
+    # TODO ACHTUNG es kann zu einem Proxy/Server immer mehrere Verbindungen
+    # durch unterschiedliche (lokale) Ports geben, diese koennen auch
+    # ueberlappen, ist das in den Statistiken ein Problem?
+    server = conn.proxy if conn.proxy else conn.server
 
-    if data[:5] == 'HTTP/':
+    while len(conn.outgoing) > 0:
       try:
-        http = dpkt.http.Response(data)
-        print "%s <-- %s: HTTP %s %s" % (inet_ntoa(pkt.src), inet_ntoa(pkt.dst), http.status, http.reason)
-        self.decode_body(http)
-      except dpkt.dpkt.UnpackError:
-        pass
-      #if pkt.p == dpkt.ip.IP_PROTO_TCP: {{{
-      #  print "%s -> %s" % (inet_ntoa(pkt.src), inet_ntoa(pkt.dst))
-      #file = open('xxx','w')
-      #file.write(http.body)
-      #file.close()
-      #print self.decode_body(http) }}}
-    else: 
-      http = dpkt.http.Request(data)
-      hdrs = http.headers
-      hdrs['accept-encoding'] = ''  # TODO support unzipping
-      http.headers = hdrs
-      print "HTTP     %s --> %s: %s %s" % (inet_ntoa(pkt.src), inet_ntoa(pkt.dst), http.method, http.uri)
+        # TODO add hack to skip dpkt parsing if content obviously
+        # is payload (i.e. large HTTP body during downloads) to
+        # prevent performance degradation and an exception?
+        http = dpkt.http.Request(conn.outgoing)
+        conn.outgoing = conn.outgoing[len(http):]
 
-  def handle_half(self, pkt):
+        # CONNECT method or transparent proxy used
+        if http.method == 'CONNECT' or \
+           (http.method == 'GET' and self.httpuri(http.uri)):
+          conn.proxy = server
+          self.stats.setproxy(self.uri2serverport(http.uri), conn.proxy)
+
+        if http.method == 'GET':
+          self.stats.addget((inet_ntoa(conn.server[0]), conn.server[1]),
+              http.headers['host'], http.uri)
+
+        if http.method == 'POST':
+          print http.headers
+          #print http.body
+      except:
+        break
+
+    while len(conn.incoming) > 0:
+      try:
+          http = dpkt.http.Response(conn.incoming)
+          conn.incoming = conn.incoming[len(http):]
+          #except dpkt.dpkt.UnpackError, IndexError:
+      except:
+        break
+        #file = open('xxx','w') {{{
+        #file.write(http.body)
+        #file.close()
+        #print self.decode_body(http) }}}
+
+  def handle_half(self, conn):
     pass
 
-  def handle_full(self, pkt):
+  def handle_full(self, conn):
     pass
 
   def decode_body(self, http):
@@ -65,25 +104,52 @@ class Http():
       return self.fast_unzip(http.body)  
     if self.get_encoding(http.headers) == 'bzip2':
       return self.fast_unbzip(http.body)  
+    if self.get_encoding(http.headers) == 'deflate':
+      return self.fast_deflate(http.body)  
       
   def get_encoding(self, headers):
+    # TODO
     """ return enconding of given headers dictionary.
-    Does not handle nested encodings yet TODO """
+    Does not handle nested encodings yet """
     for header, value in headers.items(): 
       if header.lower() == 'content-encoding':
         return value.lower()        
 
+  def fast_deflate(self, comp):
+    try:
+      import zlib
+      return zlib.decompress(comp)
+    except:
+      print "no zlib payload"
+
   def fast_unbzip(self, comp):
-    # TODO stub
-    pass
+    try:
+      import bz2
+      return bz2.decompress(comp)
+    except:
+      print "no bz2 payload"
 
   def fast_unzip(self, comp):
+    # TODO was passiert bei exception und return dec?
     try:
-      handle=StringIO.StringIO(comp)
+      import gzip, StringIO
+      handle = StringIO.StringIO(comp)
       gzip_handle = gzip.GzipFile(fileobj=handle)
       dec = gzip_handle.read()
       gzip_handle.close()
     except IOError:
       print "no gzip payload"          
     return dec
+
+  def uri2serverport(self, uri):
+    u = urlparse.urlparse(uri)
+    server = u.hostname
+    port = u.port
+    if not real_port:
+      port = 80 if u.scheme == 'http' else 443 
+    return (server, port)
+
+  def httpuri(self, uri):
+    return uri.startswith('http://') or uri.startswith('https://')
+
 
