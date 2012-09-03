@@ -14,17 +14,20 @@ protocols = []
 modes = ['TRANSPARENT', 'HALF', 'FULL']
 
 # key: connection identification (src, sport)
-# data: connection details Connection 
+# data: connection details Connection object
 tcp = {}
 
 class Connection():
   def __init__(self, module, (dst, dport), (src, sport)):
     self.module = module
     self.outgoing = ''
+    self.outdict = {}
     self.incoming = ''
+    self.indict = {}
     self.server = (dst, dport)
     self.client = (src, sport)
     self.proxy = None
+    self.seq = 0 # last ACKed sequence number
 
 def cb(payload):
     # TODO REMOVE
@@ -35,48 +38,90 @@ def cb(payload):
 
     data = payload.get_data()
     # spawn IP packet
-    pkt = ip.IP(data)
+    try:
+      pkt = ip.IP(data)
+    except:
+      print "unsupported Layer 2 protocol (not IP) dropped"
+      payload.set_verdict(nfqueue.NF_DROP)
+
+    frame = None
 
     # TCP only, for now.
-    if pkt.p != dpkt.ip.IP_PROTO_TCP:
+    if pkt.p == dpkt.ip.IP_PROTO_TCP:
+      frame = pkt.data      
+    elif pkt.p == dpkt.ip.IP_PROTO_UDP:
+      frame = pkt.data      
+    elif pkt.p == dpkt.ip.IP_PROTO_ICMP:
+      frame = pkt.data
+      if frame.type == dpkt.icmp.ICMP_ECHO:
+        print "ICMP ECHO %s" % inet_ntoa(pkt.dst)
+        return 0
+      elif frame.type == dpkt.icmp.ICMP_ECHOREPLY:
+        print "ICMP REPLY from %s" % inet_ntoa(pkt.src)
+        return 0
+      #if frame.type >= dpkt.icmp.ICMP_UNREACH and \
+      #   frame.type <= dpkt.icmp.ICMP_UNREACH_PRECEDENCE_CUTOFF:
+      #  return 0
+      else:
+        return 1
+    else:
+      print "unsupported protocol %s recieved" % pkt.p
+      #payload.set_verdict(nfqueue.NF_DROP)
       return 1
 
     # TODO check needed that no unsolicited SYN package
     # from outside pollutes the tcp dictionary?
 
-    tcp_frame = pkt.data
+    src = (pkt.src, frame.sport)
+    dst = (pkt.dst, frame.dport)
 
     # for now. TODO
-    if len(tcp_frame.data) == 0:
+    if len(frame.data) == 0:
+      # IF frame.flag = ACK and frame.type == outgoing:
+      #   hand over from dictionary all (sorted) data
+      #   with ACKNR < frame.ACKNR / set field to trigger
+      #   passing of data below in else: ...
+      if (frame.flags & dpkt.tcp.TH_ACK) != 0:
+        if pkt.src == own_ip and src in tcp:
+          tcp[src].seq = frame.ack
+
       global nodata_count
       nodata_count += 1
       return 1
 
-    src = (pkt.src, tcp_frame.sport)
-    dst = (pkt.dst, tcp_frame.dport)
-
     # outgoing packet
-    if pkt.src == inet_aton(own_ip):
+    if pkt.src == own_ip:
       if src in tcp:
-        tcp[src].outgoing += tcp_frame.data
+        tcp[src].outgoing += frame.data
+        #if frame.seq < tcp[src].seq:
+        #  pass
+        #  print "OUT OF ORDER PACKET! ZOMG PONIES!!!"
+        #tcp[src].seq = frame.seq
         if not tcp[src].module:
           classify(tcp[src])
       else:
         tcp[src] = Connection(None, dst, src) 
-        tcp[src].outgoing += tcp_frame.data
+        tcp[src].outgoing += frame.data
         classify(tcp[src])
     # incoming packet
     else:
       if dst in tcp:
-        tcp[dst].incoming += tcp_frame.data
+        tcp[dst].incoming += frame.data
+        tcp[dst].indict[frame.seq] = [frame.data, len(frame.data)]
+        #if frame.seq < tcp[dst].seq:
+        #  pass
+        #  print "OUT OF ORDER PACKET! ZOMG PONIES!!!"
+        #tcp[dst].seq = frame.seq
         if not tcp[dst].module:
           classify(tcp[dst])
       else:
+        print "new connection from %s" % inet_ntoa(src[0])
         tcp[dst] = Connection(None, src, dst) 
-        tcp[dst].incoming += tcp_frame.data
+        tcp[dst].incoming += frame.data
+        tcp[dst].indict[frame.seq] = [frame.data, len(frame.data)]
         classify(tcp[dst])
 
-    if pkt.src == inet_aton(own_ip):
+    if pkt.src == own_ip:
       if tcp[src].module:
         tcp[src].module.handle(tcp[src])
     else:
@@ -104,7 +149,10 @@ def print_connections():
   # TODO noch offene Verbindungen (i.e. len(data[1]) != 0) mit FIN,ACK
   # 'abschliessen'?
   for id, conn in tcp.items():
-    print "%s:%d, %s:%d len: %d" % (inet_ntoa(id[0]), id[1], inet_ntoa(conn.server[0]), conn.server[1], len('0')) 
+    #print "%s:%d, %s:%d len: %d" % (inet_ntoa(id[0]), id[1], inet_ntoa(conn.server[0]), conn.server[1], len('0')) 
+    print "%s:%d" % (inet_ntoa(conn.server[0]), conn.server[1])
+    for k,v in conn.indict.items():
+      print "  seq: %s, data[%d]" % (k, v[1])
 
 def load_modules(mod_dir):
   sys.path.append(mod_dir)
@@ -153,8 +201,8 @@ if __name__ == '__main__':
   print "sparring working in %s mode" % mode
   global own_ip
   # TODO funktioniert nicht immer
-  own_ip = '192.168.1.149' #gethostbyname_ex(gethostname())[2][0]
-  print "using %s as own IP address" % own_ip
+  own_ip = inet_aton('192.168.1.149') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  print "using %s as own IP address" % inet_ntoa(own_ip)
 
   sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'lib'))
 

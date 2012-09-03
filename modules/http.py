@@ -1,23 +1,22 @@
 import dpkt
 import stats
 import urlparse
-from socket import AF_INET, AF_INET6, inet_ntoa
-
+import webob
+#from pudb import set_trace; set_trace()
 
 def init(mode):
   return Http(mode)
 
 class Httpstats(stats.Stats):
-  def __init__(self):
-    self.cats['Server'] = {}
-  def addserver(self, server, proxy = None):
-    self.cats['Server'][server[0]] = [ server[1], proxy ]
   def setproxy(self, server, proxy): 
-    self.cats['Server'][server[0]] = [ server[1], proxy ]
+    self.addserver(server)
+    self.cats['Server'][server][0] = proxy
+
   def addget(self, server, host, uri):
-    if not server in self.cats:
-      self.addserver(server)
-    self.cats['Server'][server[0]] += [ host, uri ]
+    self.addserver(server)
+    # TODO: http vs. https!
+    u = urlparse.urlparse('//' + host + uri, 'http')
+    self.cats['Server'][server] += [ u.geturl() ]
 
 class Http():
   stats = Httpstats()
@@ -63,6 +62,7 @@ class Http():
         # is payload (i.e. large HTTP body during downloads) to
         # prevent performance degradation and an exception?
         http = dpkt.http.Request(conn.outgoing)
+        qry = conn.outgoing[:len(http)]
         conn.outgoing = conn.outgoing[len(http):]
 
         # CONNECT method or transparent proxy used
@@ -72,12 +72,24 @@ class Http():
           self.stats.setproxy(self.uri2serverport(http.uri), conn.proxy)
 
         if http.method == 'GET':
-          self.stats.addget((inet_ntoa(conn.server[0]), conn.server[1]),
-              http.headers['host'], http.uri)
+          self.stats.addget(conn.server, http.headers['host'], http.uri)
 
         if http.method == 'POST':
-          print http.headers
-          #print http.body
+          try:
+            #r = webob.Request.from_string("%s %s HTTP/%s" % (http.method, http.uri, http.version))
+            r = webob.Request.from_string(qry)
+            for k, v in r.POST.items():
+              try:
+                if v.filename:
+                  import shutil
+                  print "writing %s" % v.name
+                  w = open('/tmp/xxx', 'wb')
+                  shutil.copyfileobj(v.file, w)
+                  w.close()
+              except:
+                pass
+          except:
+            print 'kein OB'
       except:
         break
 
