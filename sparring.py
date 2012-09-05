@@ -50,12 +50,12 @@ class Connection():
 
   def push_in(self, t):
     """ push data tuple onto in-heap """
-    print "pushed IN  seq %d len: %d" % (t[0],len(t[1]))
+    #print "pushed IN  seq %d len: %d" % (t[0],len(t[1]))
     heappush(self.inheap, t)
 
   def push_out(self, t):
     """ push data tuple onto out-heap """
-    print "pushed OUT seq %d len: %d" % (t[0],len(t[1]))
+    #print "pushed OUT seq %d len: %d" % (t[0],len(t[1]))
     heappush(self.outheap, t)
 
   def handle(self):
@@ -114,7 +114,15 @@ def cb(payload):
       #   hand over from dictionary all (sorted) data
       #   with ACKNR < frame.ACKNR / set field to trigger
       #   passing of data below in else: ...
+      #if (frame.flags & dpkt.tcp.TH_FIN) != 0:
+        #if pkt.src == own_ip:
+        #  print "connection tear down phase sendt TO   %s" % inet_ntoa(dst[0])
+        #else:
+        #  print "connection tear down phase sendt FROM %s" % inet_ntoa(src[0])
+
+
       if (frame.flags & dpkt.tcp.TH_ACK) != 0:
+        # outgoing packet
         if pkt.src == own_ip:
           if not src in tcp:
             newconnection(dst, src)
@@ -124,6 +132,7 @@ def cb(payload):
             tcp[src].handle()
           else:
             classify(tcp[src])
+        # incoming packet
         elif dst in tcp:
           if not dst in tcp:
             newconnection(src, dst)
@@ -160,7 +169,7 @@ def cb(payload):
         if frame.seq < tcp[dst].inseq:
           print "OUT OF ORDER PACKET --- INCOMING --- ZOMG PONIES!!!"
         tcp[dst].push_in((frame.seq, frame.data))
-        tcp[dst].assemble_out()
+        tcp[dst].assemble_in()
         if frame.seq >= tcp[dst].inseq_max:
           tcp[dst].inseq_max = frame.seq
         if not tcp[dst].module:
@@ -243,10 +252,10 @@ def nfq_setup():
   
   print "\n%d packets handled (%d without data)" % (count, nodata_count)
   #print "Connection table"
-  print_connections()
+  #print_connections()
   q.unbind(AF_INET)
   q.close()
-  #print_stats()
+  print_stats()
 
 def print_stats():
   for protocol in protocols:
