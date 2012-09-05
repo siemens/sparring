@@ -64,6 +64,8 @@ class Http():
         http = dpkt.http.Request(conn.outgoing)
         qry = conn.outgoing[:len(http)]
         conn.outgoing = conn.outgoing[len(http):]
+        #lenght = http.headers['Content-Length']
+        #print "Content-Length: %d" % length
 
         # CONNECT method or transparent proxy used
         if http.method == 'CONNECT' or \
@@ -78,11 +80,12 @@ class Http():
           try:
             #r = webob.Request.from_string("%s %s HTTP/%s" % (http.method, http.uri, http.version))
             r = webob.Request.from_string(qry)
+            print "Koerperlaenge: %d, Kopf: %d versuche mich bis seq#: %d" % (r.content_length, conn.outseq)
             for k, v in r.POST.items():
               try:
                 if v.filename:
                   import shutil
-                  print "writing %s" % v.name
+                  print "writing %s" % v.filename
                   w = open('/tmp/xxx', 'wb')
                   shutil.copyfileobj(v.file, w)
                   w.close()
@@ -97,7 +100,7 @@ class Http():
       try:
           http = dpkt.http.Response(conn.incoming)
           conn.incoming = conn.incoming[len(http):]
-          #except dpkt.dpkt.UnpackError, IndexError:
+          #print self.decode_body(http)
       except:
         break
         #file = open('xxx','w') {{{
