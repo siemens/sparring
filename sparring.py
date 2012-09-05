@@ -5,6 +5,7 @@
 from dpkt import ip
 import dpkt
 import sys, os, nfqueue
+from  heapq import heappop, heappush
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname
 
 count = 0
@@ -21,13 +22,45 @@ class Connection():
   def __init__(self, module, (dst, dport), (src, sport)):
     self.module = module
     self.outgoing = ''
-    self.outdict = {}
+    self.outheap = []
     self.incoming = ''
-    self.indict = {}
+    self.inheap = []
     self.server = (dst, dport)
     self.client = (src, sport)
     self.proxy = None
-    self.seq = 0 # last ACKed sequence number
+    self.outseq = 0 # last ACKed sequence number
+    self.outseq_max = 0 # for detection of out of order packets
+    self.inseq = 0 # last ACKed sequence number
+    self.inseq_max = 0 # for detection of out of order packets
+    self.in_extra = None # Optional information assigned by self.module routines
+    self.out_extra = None # Optional information assigned by self.module routines
+
+  def assemble_in(self):
+    data = 0
+    while len(self.inheap) > 0 and min(self.inheap)[0] <= self.inseq:
+      data += len(min(self.inheap)[1])
+      self.incoming += heappop(self.inheap)[1]
+
+  def assemble_out(self):
+    data = 0
+    while len(self.outheap) > 0 and min(self.outheap)[0] <= self.outseq:
+      data += len(min(self.outheap)[1])
+      self.outgoing += heappop(self.outheap)[1]
+    return data
+
+  def push_in(self, t):
+    """ push data tuple onto in-heap """
+    print "pushed IN  seq %d len: %d" % (t[0],len(t[1]))
+    heappush(self.inheap, t)
+
+  def push_out(self, t):
+    """ push data tuple onto out-heap """
+    print "pushed OUT seq %d len: %d" % (t[0],len(t[1]))
+    heappush(self.outheap, t)
+
+  def handle(self):
+    if self.module:
+      self.module.handle(self)
 
 def cb(payload):
     # TODO REMOVE
@@ -82,53 +115,69 @@ def cb(payload):
       #   with ACKNR < frame.ACKNR / set field to trigger
       #   passing of data below in else: ...
       if (frame.flags & dpkt.tcp.TH_ACK) != 0:
-        if pkt.src == own_ip and src in tcp:
-          tcp[src].seq = frame.ack
+        if pkt.src == own_ip:
+          if not src in tcp:
+            newconnection(dst, src)
+          tcp[src].inseq = frame.ack
+          tcp[src].assemble_in()
+          if tcp[src].module:
+            tcp[src].handle()
+          else:
+            classify(tcp[src])
+        elif dst in tcp:
+          if not dst in tcp:
+            newconnection(src, dst)
+          tcp[dst].outseq = frame.ack
+          tcp[dst].assemble_out()
+          if tcp[dst].module:
+            tcp[dst].handle()
+          else:
+            classify(tcp[dst])
 
       global nodata_count
       nodata_count += 1
+
       return 1
 
     # outgoing packet
     if pkt.src == own_ip:
       if src in tcp:
-        tcp[src].outgoing += frame.data
-        #if frame.seq < tcp[src].seq:
-        #  pass
-        #  print "OUT OF ORDER PACKET! ZOMG PONIES!!!"
-        #tcp[src].seq = frame.seq
+        if frame.seq < tcp[src].outseq:
+          print "OUT OF ORDER PACKET --- OUTGOING --- ZOMG PONIES!!!"
+        tcp[src].push_out((frame.seq, frame.data))
+        tcp[src].assemble_out()
+        if frame.seq >= tcp[src].outseq_max:
+          tcp[src].outseq_max = frame.seq
         if not tcp[src].module:
           classify(tcp[src])
+        else:
+          tcp[src].handle()
       else:
-        tcp[src] = Connection(None, dst, src) 
-        tcp[src].outgoing += frame.data
-        classify(tcp[src])
+        newconnection(dst, src, frame.data)
     # incoming packet
     else:
       if dst in tcp:
-        tcp[dst].incoming += frame.data
-        tcp[dst].indict[frame.seq] = [frame.data, len(frame.data)]
-        #if frame.seq < tcp[dst].seq:
-        #  pass
-        #  print "OUT OF ORDER PACKET! ZOMG PONIES!!!"
-        #tcp[dst].seq = frame.seq
+        if frame.seq < tcp[dst].inseq:
+          print "OUT OF ORDER PACKET --- INCOMING --- ZOMG PONIES!!!"
+        tcp[dst].push_in((frame.seq, frame.data))
+        tcp[dst].assemble_out()
+        if frame.seq >= tcp[dst].inseq_max:
+          tcp[dst].inseq_max = frame.seq
         if not tcp[dst].module:
           classify(tcp[dst])
+        else:
+          tcp[dst].handle()
       else:
-        print "new connection from %s" % inet_ntoa(src[0])
-        tcp[dst] = Connection(None, src, dst) 
-        tcp[dst].incoming += frame.data
-        tcp[dst].indict[frame.seq] = [frame.data, len(frame.data)]
-        classify(tcp[dst])
+        newconnection(src, dst, frame.data)
 
-    if pkt.src == own_ip:
-      if tcp[src].module:
-        tcp[src].module.handle(tcp[src])
-    else:
-      if tcp[dst].module:
-        tcp[dst].module.handle(tcp[dst])
+#    if pkt.src == own_ip: {{{
+#      if tcp[src].module:
+#        tcp[src].handle()
+#    else:
+#      if tcp[dst].module:
+#        tcp[dst].handle()
 
-    # Annahme: irgendein Handler war passend TODO {{{
+    # Annahme: irgendein Handler war passend TODO
     # TODO wenn FIN kommt, tcp[src|dst] aufraeumen
     # Annahme2: alle Pakete sind schon da und in der richtigen Reihenfolge
     # Hier auch dann die Gegenrichtung verarbeiten, damit (HTTP)
@@ -137,6 +186,14 @@ def cb(payload):
     #payload.set_verdict(nfqueue.NF_ACCEPT)
     #sys.stdout.flush()
     return 1
+
+def newconnection(src, dst, data = ''):
+  """ src: client tuple (ip, port)
+  dst: server tuple(ip, port)
+  data: sent/received data, may be empty """
+  tcp[dst] = Connection(None, src, dst) 
+  tcp[dst].incoming += data
+  classify(tcp[dst])
 
 def classify(connection):
   """ connection is a list [protocolhandler = None, data] """
@@ -147,12 +204,15 @@ def classify(connection):
 
 def print_connections():
   # TODO noch offene Verbindungen (i.e. len(data[1]) != 0) mit FIN,ACK
-  # 'abschliessen'?
+  # 'abschliessen'? -> NICHT im transparenten Modus
   for id, conn in tcp.items():
-    #print "%s:%d, %s:%d len: %d" % (inet_ntoa(id[0]), id[1], inet_ntoa(conn.server[0]), conn.server[1], len('0')) 
-    print "%s:%d" % (inet_ntoa(conn.server[0]), conn.server[1])
-    for k,v in conn.indict.items():
-      print "  seq: %s, data[%d]" % (k, v[1])
+    #print "  inheap lang: %d incoming: %d" % (len(conn.inheap),len(conn.incoming))
+    #print "  last ACKed : %d max seq: %d     " % (conn.inseq, conn.inseq_max)
+    if conn.inseq < conn.inseq_max:
+      print "Details for %s:%d" % (inet_ntoa(conn.server[0]), conn.server[1])
+      print "  WARNING un-ACK-ed data in buffer"
+    for k,v in conn.inheap:
+      print "  seq: %s, data[%d]" % (k, len(v))
 
 def load_modules(mod_dir):
   sys.path.append(mod_dir)
@@ -183,15 +243,15 @@ def nfq_setup():
   
   print "\n%d packets handled (%d without data)" % (count, nodata_count)
   #print "Connection table"
-  #print_connections()
+  print_connections()
   q.unbind(AF_INET)
   q.close()
-  print_stats()
+  #print_stats()
 
 def print_stats():
   for protocol in protocols:
     if [method for method in dir(protocol) if callable(getattr(protocol, method))].count('get_stats') == 1:
-      print "\n STATISTICS for protocol %s\n" % protocol.protocols()[0]
+      print "\n STATISTICS for protocol %s" % protocol.protocols()[0]
       protocol.get_stats()
     else:
       print "no stats available for protocol %s" % protocol.protocols()[0]
