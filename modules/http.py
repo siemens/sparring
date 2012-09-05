@@ -1,4 +1,3 @@
-import dpkt
 import stats
 import urlparse
 import webob
@@ -16,7 +15,16 @@ class Httpstats(stats.Stats):
     self.addserver(server)
     # TODO: http vs. https!
     u = urlparse.urlparse('//' + host + uri, 'http')
-    self.cats['Server'][server] += [ u.geturl() ]
+    self.cats['Server'][server] += [ 'GET ' + u.geturl() ]
+  
+  def addpost(self, server, host, uri, file=None):
+    self.addserver(server)
+    if not self.cats.has_key('Files'):
+      self.cats['Files'] = []
+    if file:
+      self.cats['Files'] += [file]
+    u = urlparse.urlparse('//' + host + uri, 'http')
+    self.cats['Server'][server] += [ 'POST ' + u.geturl() ]
 
 class Http():
   stats = Httpstats()
@@ -58,30 +66,24 @@ class Http():
 
     while len(conn.outgoing) > 0:
       try:
-        # TODO add hack to skip dpkt parsing if content obviously
-        # is payload (i.e. large HTTP body during downloads) to
-        # prevent performance degradation and an exception?
-        http = dpkt.http.Request(conn.outgoing)
-        qry = conn.outgoing[:len(http)]
-        conn.outgoing = conn.outgoing[len(http):]
-        #lenght = http.headers['Content-Length']
-        #print "Content-Length: %d" % length
+        http = webob.Request.from_string(conn.outgoing) 
+        conn.outgoing = conn.outgoing[len(http.as_string()):]
 
         # CONNECT method or transparent proxy used
         if http.method == 'CONNECT' or \
-           (http.method == 'GET' and self.httpuri(http.uri)):
+           (http.method == 'GET' and self.httpuri(http.path)):
           conn.proxy = server
-          self.stats.setproxy(self.uri2serverport(http.uri), conn.proxy)
+          self.stats.setproxy(self.uri2serverport(http.path), conn.proxy)
 
         if http.method == 'GET':
-          self.stats.addget(conn.server, http.headers['host'], http.uri)
+          self.stats.addget(conn.server, http.host, http.path)
 
         if http.method == 'POST':
+          #print "qry: %d, header: %d\nbody:\n%s" % (len(qry), len(qry.split('\r\n\r\n', 1)[0])+4, qry[:368])
           try:
-            #r = webob.Request.from_string("%s %s HTTP/%s" % (http.method, http.uri, http.version))
-            r = webob.Request.from_string(qry)
-            print "Koerperlaenge: %d, Kopf: %d versuche mich bis seq#: %d" % (r.content_length, conn.outseq)
-            for k, v in r.POST.items():
+            filename = None
+            for k, v in http.POST.items():
+              print k
               try:
                 if v.filename:
                   import shutil
@@ -89,19 +91,25 @@ class Http():
                   w = open('/tmp/xxx', 'wb')
                   shutil.copyfileobj(v.file, w)
                   w.close()
-              except:
-                pass
-          except:
-            print 'kein OB'
+                  filename = v.filename
+                  self.stats.addpost(conn.server, http.host, http.path, filename)
+              except Exception,e:
+                  self.stats.addpost(conn.server, http.host, http.path)
+          except Exception,e:
+            # stuff the query back into the send buffer
+            conn.outgoing = qry + conn.outgoing
+            print "-----%s\n>>>\n%s<<<" % (e, conn.outgoing)
+            break
       except:
         break
 
     while len(conn.incoming) > 0:
       try:
-          http = dpkt.http.Response(conn.incoming)
-          conn.incoming = conn.incoming[len(http):]
+          #conn.incoming = ''
+          http = webob.Response.from_string(conn.incoming)
+          conn.incoming = conn.incoming[len(http.as_string()):]
           #print self.decode_body(http)
-      except:
+      except: 
         break
         #file = open('xxx','w') {{{
         #file.write(http.body)
