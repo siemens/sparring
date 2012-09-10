@@ -1,21 +1,20 @@
 import stats, urllib
 import dnslib
+from dnslib import QTYPE
 from stats import Stats
-from pudb import set_trace; set_trace()
+#from pudb import set_trace; set_trace()
 
 def init(mode):
   return Dns(mode)
 
 class Dnsstats(Stats):
   dummy = None
-  def addquery(self, server, host, uri, file=None, original=None):
+  def addquery(self, server, q):
     self.addserver(server)
-    if not self.cats.has_key('Files'):
-      self.cats['Files'] = []
-    if file:
-      self.cats['Files'] += [file + ' original: ' + original]
-    u = urlparse.urlparse('//' + host + uri, 'http')
-    self.cats['Server'][server] += [ 'POST ' + u.geturl() ] 
+    self.cats['Server'][server] += [ 'Q: ' + str(q) ] 
+  def addresponse(self, server, a):
+    self.addserver(server)
+    self.cats['Server'][server] += [ 'A: ', a ] 
 
 class Dns():
   servers = {}
@@ -32,26 +31,21 @@ class Dns():
   def classify(self, conn):
     ret = False
 
+    #print "outgoing: %d, incoming: %d" % (len(conn.outgoing), len(conn.incoming))
+
     if conn.outgoing:
       try:
-        #dns = conn.outgoing.decode('hex')
-        dns = conn.outgoing
-        question = dnslib.DNSRecord.parse(dns)
-        conn.outgoing = ''
-        print "???"
-        print question
+        question = dnslib.DNSRecord.parse(conn.incoming)
         ret = True
       except:
         pass
 
     if conn.incoming:
+      # TODO remove
+      if conn.client[1] != 53 and conn.server[1] != 53:
+        return False
       try:
-        #dns = conn.incoming.decode('hex')
-        dns = conn.incoming
-        answer = dnslib.DNSRecord.parse(dns)
-        conn.incoming = ''
-        print "!!!"
-        print answer
+        answer = dnslib.DNSRecord.parse(conn.incoming)
         ret = True
       except:
         pass
@@ -71,6 +65,28 @@ class Dns():
 
   def handle_transparent(self, conn):
     while conn.outgoing:
+      try:
+        dns = conn.outgoing
+        question = dnslib.DNSRecord.parse(dns)
+        self.stats.addquery(conn.server, question.get_q())
+        conn.outgoing = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
+        ret = True
+      except:
+        pass
+
+    while conn.incoming:
+      try:
+        dns = conn.incoming
+        answer = dnslib.DNSRecord.parse(dns)
+        rlist = []
+        for x in answer.rr:
+          rlist.append(QTYPE.lookup(x.rtype) + " " + str(x.rname) + " " + str(x.rdata))
+        self.stats.addresponse(conn.server, rlist)
+        conn.incoming = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
+        ret = True
+      except Exception, e:
+        print e
+        pass
         break
 
     while conn.incoming:
