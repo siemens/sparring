@@ -1,6 +1,7 @@
 import stats
 import urlparse
 import webob
+from socket import inet_ntoa
 #from pudb import set_trace; set_trace()
 
 def init(mode):
@@ -22,7 +23,7 @@ class Httpstats(stats.Stats):
     if not self.cats.has_key('Files'):
       self.cats['Files'] = []
     if file:
-      self.cats['Files'] += [file + ' original: ' + original]
+      self.cats['Files'] += [file + ' original: ' + original ]
     u = urlparse.urlparse('//' + host + uri, 'http')
     self.cats['Server'][server] += [ 'POST ' + u.geturl() ] 
 
@@ -91,7 +92,7 @@ class Http():
                   shutil.copyfileobj(v.file, w)
                   w.close()
                   filename = v.filename
-                  self.stats.addpost(conn.server, http.host, http.path + " %s=%s" % (k, v.filename), w.name, filename)
+                  self.stats.addpost(conn.server, http.host, http.path + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
               except Exception,e:
                   self.stats.addpost(conn.server, http.host, http.path + " %s=%s" % (k, v))
           except Exception,e:
