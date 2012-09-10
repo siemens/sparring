@@ -1,14 +1,14 @@
 from Queue import Queue, PriorityQueue
 
 class Connection():
-  def __init__(self, module, (dst, dport), (src, sport)):
+  def __init__(self, module, (l, lport), (r, rport)):
     self.module = module
     self.outgoing = ''
     self.outqueue = Queue()
     self.incoming = ''
     self.inqueue = Queue()
-    self.server = (dst, dport)
-    self.client = (src, sport)
+    self.local = (l, lport)
+    self.remote = (r, rport)
     self.proxy = None
     self.in_extra = None # Optional information assigned by self.module routines
     self.out_extra = None # Optional information assigned by self.module routines

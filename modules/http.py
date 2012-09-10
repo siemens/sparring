@@ -8,6 +8,11 @@ def init(mode):
   return Http(mode)
 
 class Httpstats(stats.Stats):
+  def addserver(self, server, proxy = None):
+    if server in self.cats['Server']:
+      return
+    self.cats['Server'][server] = [ proxy ]
+
   def setproxy(self, server, proxy): 
     self.addserver(server)
     self.cats['Server'][server][0] = proxy
@@ -57,11 +62,11 @@ class Http():
 
   def handle_transparent(self, conn):
     # be careful to count the connection for http://server,
-    # not the proxy server (conn.server)!
+    # not the proxy server (conn.remote)!
     # TODO ACHTUNG es kann zu einem Proxy/Server immer mehrere Verbindungen
     # durch unterschiedliche (lokale) Ports geben, diese koennen auch
     # ueberlappen, ist das in den Statistiken ein Problem?
-    server = conn.proxy if conn.proxy else conn.server
+    server = conn.proxy if conn.proxy else conn.remote
 
     while conn.outgoing:
       try:
@@ -75,7 +80,7 @@ class Http():
           self.stats.setproxy(self.uri2serverport(http.path), conn.proxy)
 
         if http.method == 'GET':
-          self.stats.addget(conn.server, http.host, http.path)
+          self.stats.addget(conn.remote, http.host, http.path)
 
         if http.method == 'POST':
           #print "qry: %d, header: %d\nbody:\n%s" % (len(qry), len(qry.split('\r\n\r\n', 1)[0])+4, qry[:368])
@@ -92,9 +97,9 @@ class Http():
                   shutil.copyfileobj(v.file, w)
                   w.close()
                   filename = v.filename
-                  self.stats.addpost(conn.server, http.host, http.path + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
+                  self.stats.addpost(conn.remote, http.host, http.path + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
               except Exception,e:
-                  self.stats.addpost(conn.server, http.host, http.path + " %s=%s" % (k, v))
+                  self.stats.addpost(conn.remote, http.host, http.path + " %s=%s" % (k, v))
           except Exception,e:
             # stuff the query back into the send buffer
             conn.outgoing = qry + conn.outgoing

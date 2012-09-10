@@ -2,7 +2,6 @@ import stats, urllib
 import dnslib
 from dnslib import QTYPE
 from stats import Stats
-#from pudb import set_trace; set_trace()
 
 def init(mode):
   return Dns(mode)
@@ -31,19 +30,17 @@ class Dns():
   def classify(self, conn):
     ret = False
 
-    #print "outgoing: %d, incoming: %d" % (len(conn.outgoing), len(conn.incoming))
-
+    # will throw exception if data is not assigned to another variable *SIGH*
     if conn.outgoing:
+      dns = conn.outgoing
       try:
-        question = dnslib.DNSRecord.parse(conn.incoming)
+        question = dnslib.DNSRecord.parse(dns)
         ret = True
       except:
         pass
 
-    if conn.incoming:
-      # TODO remove
-      if conn.client[1] != 53 and conn.server[1] != 53:
-        return False
+    if conn.incoming and not ret:
+      dns = conn.incoming
       try:
         answer = dnslib.DNSRecord.parse(conn.incoming)
         ret = True
@@ -68,10 +65,11 @@ class Dns():
       try:
         dns = conn.outgoing
         question = dnslib.DNSRecord.parse(dns)
-        self.stats.addquery(conn.server, question.get_q())
+        self.stats.addquery(conn.remote, question.get_q())
         conn.outgoing = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
         ret = True
-      except:
+      except Exception, e:
+        print e
         pass
 
     while conn.incoming:
@@ -81,7 +79,7 @@ class Dns():
         rlist = []
         for x in answer.rr:
           rlist.append(QTYPE.lookup(x.rtype) + " " + str(x.rname) + " " + str(x.rdata))
-        self.stats.addresponse(conn.server, rlist)
+        self.stats.addresponse(conn.remote, rlist)
         conn.incoming = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
         ret = True
       except Exception, e:

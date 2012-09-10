@@ -1,11 +1,10 @@
 #!/usr/bin/env python
+import sys, os, nfqueue, dpkt
 from dpkt import ip
-import dpkt
-import sys, os, nfqueue 
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname
-from connection import Tcpconnection, Connection
-
 #from pudb import set_trace; set_trace()
+
+# local import below!
 
 count = 0
 nodata_count = 0
@@ -13,16 +12,15 @@ queueno = 0
 protocols = []
 modes = ['TRANSPARENT', 'HALF', 'FULL']
 
-# key: connection identification (src, sport)
-# data: connection details Connection object
-tcp = {}
-udp = {}
+tcp = None
+udp = None
 
 def cb(payload):
+    global count, nodata_count
+
     # TODO REMOVE
     payload.set_verdict(nfqueue.NF_STOP)
 
-    global count
     count += 1
 
     data = payload.get_data()
@@ -32,14 +30,19 @@ def cb(payload):
     except:
       print "unsupported Layer 3 protocol (not IP) dropped"
       payload.set_verdict(nfqueue.NF_DROP)
+      return
 
     # TODO XXX  return-Wert nur das VERDICT, wir wollen aber auch, falls
     # noetig, set_verdict_modified() aufrufen koennen. Meer returnen oder
     # payload uebergeben und die Funktion selber VERDICT setzen lassen?
     if pkt.p == dpkt.ip.IP_PROTO_TCP:
-      payload.set_verdict(handle_tcp(pkt))
+      ret = tcp.handle(pkt)
+      payload.set_verdict(ret[1])
+      nodata_count += ret[0]
     elif pkt.p == dpkt.ip.IP_PROTO_UDP:
-      payload.set_verdict(handle_udp(pkt))
+      ret = udp.handle(pkt)
+      payload.set_verdict(ret[1])
+      nodata_count += ret[0]
     elif pkt.p == dpkt.ip.IP_PROTO_ICMP:
       frame = pkt.data
       if frame.type == dpkt.icmp.ICMP_ECHO:
@@ -56,110 +59,6 @@ def cb(payload):
     else:
       print "unsupported protocol %s recieved" % pkt.p
       return
-
-def handle_udp(pkt):
-  datagram = pkt.data
-  src = (pkt.src, datagram.sport)
-  dst = (pkt.dst, datagram.dport)
-
-  # outgoing packet
-  if pkt.src == own_ip:
-    if not src in udp:
-      newconnection(udp, Connection, src, dst)
-
-    udp[src].put_out(datagram.data)
-
-    if not udp[src].module:
-      classify(udp[src])
-    if udp[src].module:
-      udp[src].handle()
-
-  # incoming packet
-  else:
-    if not dst in udp:
-      newconnection(udp, Connection, dst, src)
-
-
-    # TODO handle
-    try:
-      udp[dst].put_in(datagram.data)
-      if not udp[dst].module:
-        classify(udp[dst])
-      if udp[dst].module:
-        udp[dst].handle()
-    except:
-      print "%s:%d -> %s:%d" % (inet_ntoa(src[0]), src[1], inet_ntoa(dst[0]), dst[1])
-
-  return nfqueue.NF_STOP
-
-def handle_tcp(pkt):
-    # TODO check needed that no unsolicited SYN package
-    # from outside pollutes the tcp dictionary?
-
-    segment = pkt.data
-    src = (pkt.src, segment.sport)
-    dst = (pkt.dst, segment.dport)
-
-    # TODO wenn FIN kommt, tcp[src|dst] aufraeumen (leeren/letzes handle())
-    if len(segment.data) == 0:
-      if (segment.flags & dpkt.tcp.TH_ACK) != 0:
-        # outgoing packet
-        if pkt.src == own_ip:
-          if not src in tcp:
-            newconnection(tcp, Tcpconnection, src, dst)
-          tcp[src].inseq = segment.ack
-          tcp[src].assemble_in()
-          if not tcp[src].module:
-            classify(tcp[src])
-          if tcp[src].module:
-            tcp[src].handle()
-        # incoming packet
-        elif dst in tcp:
-          if not dst in tcp:
-            newconnection(tcp, Tcpconnection, dst, src)
-          tcp[dst].outseq = segment.ack
-          tcp[dst].assemble_out()
-          if not tcp[dst].module:
-            classify(tcp[dst])
-          if tcp[dst].module:
-            tcp[dst].handle()
-
-      global nodata_count
-      nodata_count += 1
-
-      return nfqueue.NF_STOP
-
-    # outgoing packet
-    if pkt.src == own_ip:
-      if src in tcp:
-        if segment.seq >= tcp[src].outseq_max:
-          tcp[src].outseq_max = segment.seq
-      else:
-        newconnection(tcp, Tcpconnection, src, dst)
-
-      tcp[src].put_out((segment.seq, segment.data))
-
-      if not tcp[src].module:
-        classify(tcp[src])
-      if tcp[src].module:
-        tcp[src].handle()
-
-    # incoming packet
-    else:
-      if dst in tcp:
-        if segment.seq >= tcp[dst].inseq_max:
-          tcp[dst].inseq_max = segment.seq
-      else:
-        newconnection(tcp, Tcpconnection, dst, src)
-
-      tcp[dst].put_in((segment.seq, segment.data))
-
-      if not tcp[dst].module:
-        classify(tcp[dst])
-      if tcp[dst].module:
-        tcp[dst].handle()
-
-    return nfqueue.NF_STOP
 #    if pkt.src == own_ip: {{{
 #      if tcp[src].module:
 #        tcp[src].handle()
@@ -169,24 +68,6 @@ def handle_tcp(pkt):
 
 # Annahme: irgendein Handler war passend TODO }}}
              
-
-def newconnection(l3, conntype, src, dst):
-  """ l3 layer3-dict to use (tcp/udp/..)
-  conntype: connection instance for data handling
-  src: client tuple (ip, port)
-  dst: server tuple(ip, port) """
-  if src[0] == own_ip:
-    l3[src] = conntype(None, src, dst) 
-  else:
-    l3[dst] = conntype(None, dst, src) 
-
-def classify(connection):
-  for protocol in protocols:
-    if protocol.classify(connection):
-      connection.module = protocol
-      return True
-  return False
-
 def print_connections():
   # TODO noch offene Verbindungen (i.e. len(data[1]) != 0) mit FIN,ACK
   # 'abschliessen'? -> NICHT im transparenten Modus
@@ -226,7 +107,7 @@ def nfq_setup():
   
   print "\n%d packets handled (%d without data)" % (count, nodata_count)
   #print "Connection table"
-  print_connections()
+  #print_connections()
   q.unbind(AF_INET)
   q.close()
   print_stats()
@@ -246,18 +127,23 @@ if __name__ == '__main__':
   # TODO funktioniert nicht immer
   # eigentlich eine Liste (inkl. Broadcastadresse)
   own_ip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  own_ip = inet_aton('192.168.0.100') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   print "using %s as own IP address" % inet_ntoa(own_ip)
 
   sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'lib'))
+  sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'protocols'))
 
   mod_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),'modules')
-
   load_modules(mod_dir)
 
   print "Loaded modules ",
   for protocol in protocols:
     print protocol.protocols(),
   print 
+
+  import tcp, udp
+  tcp = tcp.Tcp(mode, protocols, own_ip)
+  udp = udp.Udp(mode, protocols, own_ip)
 
   nfq_setup()
 

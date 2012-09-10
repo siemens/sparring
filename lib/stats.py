@@ -9,7 +9,7 @@ class Stats():
   def addserver(self, server, proxy = None):
     if server in self.cats['Server']:
       return
-    self.cats['Server'][server] = [ proxy ]
+    self.cats['Server'][server] = []
 
   # default output is generated in a haskellesque way
   def p(self, x, level):
