@@ -17,14 +17,14 @@ class Httpstats(stats.Stats):
     u = urlparse.urlparse('//' + host + uri, 'http')
     self.cats['Server'][server] += [ 'GET ' + u.geturl() ]
   
-  def addpost(self, server, host, uri, file=None):
+  def addpost(self, server, host, uri, file=None, original=None):
     self.addserver(server)
     if not self.cats.has_key('Files'):
       self.cats['Files'] = []
     if file:
-      self.cats['Files'] += [file]
+      self.cats['Files'] += [file + ' original: ' + original]
     u = urlparse.urlparse('//' + host + uri, 'http')
-    self.cats['Server'][server] += [ 'POST ' + u.geturl() ]
+    self.cats['Server'][server] += [ 'POST ' + u.geturl() ] 
 
 class Http():
   stats = Httpstats()
@@ -39,7 +39,7 @@ class Http():
     return ['http']
 
   def classify(self, conn):
-    return (conn.incoming.split('\n')[0].startswith('HTTP/') or conn.outgoing.split('\n')[0][-9:][:5] == 'HTTP/')
+    return (conn.incoming.split('\n', 1)[0].startswith('HTTP/') or conn.outgoing.split('\n', 1)[0][-9:][:5] == 'HTTP/')
 
   def get_stats(self):
     print self.stats
@@ -47,8 +47,6 @@ class Http():
     #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
 
   def handle(self, conn):
-
-    # gather stats
     if self.mode == 'TRANSPARENT':
       return self.handle_transparent(conn)
     if self.mode == 'HALF':
@@ -64,9 +62,9 @@ class Http():
     # ueberlappen, ist das in den Statistiken ein Problem?
     server = conn.proxy if conn.proxy else conn.server
 
-    while len(conn.outgoing) > 0:
+    while conn.outgoing:
       try:
-        http = webob.Request.from_string(conn.outgoing) 
+        http = webob.Request.from_bytes(conn.outgoing) 
         conn.outgoing = conn.outgoing[len(http.as_string()):]
 
         # CONNECT method or transparent proxy used
@@ -83,18 +81,19 @@ class Http():
           try:
             filename = None
             for k, v in http.POST.items():
-              print k
+              #print k
               try:
                 if v.filename:
-                  import shutil
+                  import shutil, tempfile
                   print "writing %s" % v.filename
-                  w = open('/tmp/xxx', 'wb')
+                  w = tempfile.NamedTemporaryFile(dir='/tmp', delete = False)
+                  #w = open('/tmp/xxx', 'wb')
                   shutil.copyfileobj(v.file, w)
                   w.close()
                   filename = v.filename
-                  self.stats.addpost(conn.server, http.host, http.path, filename)
+                  self.stats.addpost(conn.server, http.host, http.path + " %s=%s" % (k, v.filename), w.name, filename)
               except Exception,e:
-                  self.stats.addpost(conn.server, http.host, http.path)
+                  self.stats.addpost(conn.server, http.host, http.path + " %s=%s" % (k, v))
           except Exception,e:
             # stuff the query back into the send buffer
             conn.outgoing = qry + conn.outgoing
@@ -103,13 +102,49 @@ class Http():
       except:
         break
 
-    while len(conn.incoming) > 0:
+    while conn.incoming:
+      if not conn.in_extra:
+        conn.in_extra = {}
+      if not 'length' in conn.in_extra:
+        header = conn.incoming.split('\r\n\r\n', 1)[0]
+        for val in header.split('\r\n'):
+          if val.split(':')[0].lower() == 'content-length':
+            conn.in_extra['length'] = int(val.split(':')[1])
+            #print "found len %d" % conn.in_extra['length']
+
+      if 'length' in conn.in_extra and len(conn.incoming) < conn.in_extra['length']:
+        #print "zu kurz %d sollte  %d" % (len(conn.incoming), conn.in_extra['length'])
+        break
+
       try:
-          #conn.incoming = ''
-          http = webob.Response.from_string(conn.incoming)
-          conn.incoming = conn.incoming[len(http.as_string()):]
-          #print self.decode_body(http)
-      except: 
+        split = conn.incoming.split('\r\n\r\n', 1)
+        header = split[0]
+        body = split[1]
+        size = len(header) + len(body) + 4
+        http = webob.Response(split[1])
+
+        # TODO des kanns ja eigentlich nicht sein...
+        for val in header.split('\r\n'):
+          try:
+            http.headers.add(val.split(':', 1)[0], val.split(': ', 1)[1])
+          except:
+            pass
+
+        conn.incoming = conn.incoming[size:]
+
+        if http.content_type != 'text/html':
+          pass
+        else:
+          pass
+          #print "%s" % self.decode_body(http)
+
+        # parsing succeeded, clear Content-Length of http-header
+        try:
+          del conn.in_extra['length'] # TODO re-enable
+        except:
+          print "xxxx"
+      except Exception, e: 
+        print str(e) + " yyy"
         break
         #file = open('xxx','w') {{{
         #file.write(http.body)
@@ -120,14 +155,17 @@ class Http():
     pass
 
   def handle_full(self, conn):
+    self.handle_transparent(conn)
     pass
 
   def decode_body(self, http):
-    if self.get_encoding(http.headers) == 'gzip':
+    if http.content_encoding == 'gzip':
       return self.fast_unzip(http.body)  
-    if self.get_encoding(http.headers) == 'bzip2':
+    if http.content_encoding == 'identity':
+      return http.body
+    if http.content_encoding == 'bzip2':
       return self.fast_unbzip(http.body)  
-    if self.get_encoding(http.headers) == 'deflate':
+    if http.content_encoding == 'deflate':
       return self.fast_deflate(http.body)  
       
   def get_encoding(self, headers):
