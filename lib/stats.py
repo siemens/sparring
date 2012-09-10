@@ -1,9 +1,9 @@
 from socket import inet_ntoa
 
 class Stats():
-  cats = {}
-
+  #cats = {} # 'statisch' geteiltes Objekt fuer alle Instantenzen
   def __init__(self):
+    self.cats = {}
     self.cats['Server'] = {}
 
   def addserver(self, server, proxy = None):
