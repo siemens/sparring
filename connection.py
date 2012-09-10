@@ -54,8 +54,10 @@ class Tcpconnection(Connection):
     """ put data tuple (seqnum, data) into the in_queue  """
     #print "pushed IN  seq %d len: %d" % (t[0],len(t[1]))
     self.inqueue.put(t)
+    self.assemble_in()
 
   def put_out(self, t):
     """ put data tuple (seqnum, data) into the out_queue  """
     #print "pushed OUT seq %d len: %d" % (t[0],len(t[1]))
     self.outqueue.put(t)
+    self.assemble_out()
