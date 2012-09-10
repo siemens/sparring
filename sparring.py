@@ -4,9 +4,9 @@
 
 from dpkt import ip
 import dpkt
-import sys, os, nfqueue
-from  heapq import heappop, heappush
+import sys, os, nfqueue 
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname
+from connection import Tcpconnection
 
 count = 0
 nodata_count = 0
@@ -17,54 +17,11 @@ modes = ['TRANSPARENT', 'HALF', 'FULL']
 # key: connection identification (src, sport)
 # data: connection details Connection object
 tcp = {}
-
-class Connection():
-  def __init__(self, module, (dst, dport), (src, sport)):
-    self.module = module
-    self.outgoing = ''
-    self.outheap = []
-    self.incoming = ''
-    self.inheap = []
-    self.server = (dst, dport)
-    self.client = (src, sport)
-    self.proxy = None
-    self.outseq = 0 # last ACKed sequence number
-    self.outseq_max = 0 # for detection of out of order packets
-    self.inseq = 0 # last ACKed sequence number
-    self.inseq_max = 0 # for detection of out of order packets
-    self.in_extra = None # Optional information assigned by self.module routines
-    self.out_extra = None # Optional information assigned by self.module routines
-
-  def assemble_in(self):
-    data = 0
-    while len(self.inheap) > 0 and min(self.inheap)[0] <= self.inseq:
-      data += len(min(self.inheap)[1])
-      self.incoming += heappop(self.inheap)[1]
-
-  def assemble_out(self):
-    data = 0
-    while len(self.outheap) > 0 and min(self.outheap)[0] <= self.outseq:
-      data += len(min(self.outheap)[1])
-      self.outgoing += heappop(self.outheap)[1]
-    return data
-
-  def push_in(self, t):
-    """ push data tuple onto in-heap """
-    #print "pushed IN  seq %d len: %d" % (t[0],len(t[1]))
-    heappush(self.inheap, t)
-
-  def push_out(self, t):
-    """ push data tuple onto out-heap """
-    #print "pushed OUT seq %d len: %d" % (t[0],len(t[1]))
-    heappush(self.outheap, t)
-
-  def handle(self):
-    if self.module:
-      self.module.handle(self)
+udp = {}
 
 def cb(payload):
     # TODO REMOVE
-    payload.set_verdict(nfqueue.NF_ACCEPT)
+    payload.set_verdict(nfqueue.NF_STOP)
 
     global count
     count += 1
@@ -74,59 +31,79 @@ def cb(payload):
     try:
       pkt = ip.IP(data)
     except:
-      print "unsupported Layer 2 protocol (not IP) dropped"
+      print "unsupported Layer 3 protocol (not IP) dropped"
       payload.set_verdict(nfqueue.NF_DROP)
 
-    frame = None
-
-    # TCP only, for now.
+    # TODO XXX  return-Wert nur das VERDICT, wir wollen aber auch, falls
+    # noetig, set_verdict_modified() aufrufen koennen. Meer returnen oder
+    # payload uebergeben und die Funktion selber VERDICT setzen lassen?
     if pkt.p == dpkt.ip.IP_PROTO_TCP:
-      frame = pkt.data      
+      payload.set_verdict(handle_tcp(pkt))
     elif pkt.p == dpkt.ip.IP_PROTO_UDP:
-      frame = pkt.data      
+      payload.set_verdict(handle_udp(pkt))
     elif pkt.p == dpkt.ip.IP_PROTO_ICMP:
       frame = pkt.data
       if frame.type == dpkt.icmp.ICMP_ECHO:
         print "ICMP ECHO %s" % inet_ntoa(pkt.dst)
-        return 0
+        return
       elif frame.type == dpkt.icmp.ICMP_ECHOREPLY:
         print "ICMP REPLY from %s" % inet_ntoa(pkt.src)
-        return 0
+        return
       #if frame.type >= dpkt.icmp.ICMP_UNREACH and \
       #   frame.type <= dpkt.icmp.ICMP_UNREACH_PRECEDENCE_CUTOFF:
-      #  return 0
+      #  return
       else:
-        return 1
+        return
     else:
       print "unsupported protocol %s recieved" % pkt.p
-      #payload.set_verdict(nfqueue.NF_DROP)
-      return 1
+      return
 
+def handle_udp(pkt):
+  datagram = pkt.data
+  src = (pkt.src, datagram.sport)
+  dst = (pkt.dst, datagram.dport)
+
+  # outgoing packet
+  if pkt.src == own_ip:
+    #dns = dpkt.dns.DNS(datagram.data)
+    #print dns.qd[0].name
+    if src in udp:
+      udp[src].put_in(datagram.data)
+      if not udp[src].module:
+        classify(udp[src])
+      else:
+        udp[src].handle()
+    else:
+      newconnection(udp, dst, src, datagram.data)
+  # incoming packet
+  else:
+    if dst in udp:
+      udp[src].put_in(datagram.data)
+      if not udp[dst].module:
+        classify(udp[dst])
+      else:
+        udp[dst].handle()
+    else:
+      newconnection(udp, src, dst, datagram.data)
+
+  return nfqueue.NF_STOP
+
+def handle_tcp(pkt):
     # TODO check needed that no unsolicited SYN package
     # from outside pollutes the tcp dictionary?
 
-    src = (pkt.src, frame.sport)
-    dst = (pkt.dst, frame.dport)
+    segment = pkt.data
+    src = (pkt.src, segment.sport)
+    dst = (pkt.dst, segment.dport)
 
-    # for now. TODO
-    if len(frame.data) == 0:
-      # IF frame.flag = ACK and frame.type == outgoing:
-      #   hand over from dictionary all (sorted) data
-      #   with ACKNR < frame.ACKNR / set field to trigger
-      #   passing of data below in else: ...
-      #if (frame.flags & dpkt.tcp.TH_FIN) != 0:
-        #if pkt.src == own_ip:
-        #  print "connection tear down phase sendt TO   %s" % inet_ntoa(dst[0])
-        #else:
-        #  print "connection tear down phase sendt FROM %s" % inet_ntoa(src[0])
-
-
-      if (frame.flags & dpkt.tcp.TH_ACK) != 0:
+    # TODO wenn FIN kommt, tcp[src|dst] aufraeumen (leeren/letzes handle())
+    if len(segment.data) == 0:
+      if (segment.flags & dpkt.tcp.TH_ACK) != 0:
         # outgoing packet
         if pkt.src == own_ip:
           if not src in tcp:
-            newconnection(dst, src)
-          tcp[src].inseq = frame.ack
+            newconnection(tcp, dst, src)
+          tcp[src].inseq = segment.ack
           tcp[src].assemble_in()
           if tcp[src].module:
             tcp[src].handle()
@@ -135,8 +112,8 @@ def cb(payload):
         # incoming packet
         elif dst in tcp:
           if not dst in tcp:
-            newconnection(src, dst)
-          tcp[dst].outseq = frame.ack
+            newconnection(tcp, src, dst)
+          tcp[dst].outseq = segment.ack
           tcp[dst].assemble_out()
           if tcp[dst].module:
             tcp[dst].handle()
@@ -146,39 +123,40 @@ def cb(payload):
       global nodata_count
       nodata_count += 1
 
-      return 1
+      return nfqueue.NF_STOP
 
     # outgoing packet
     if pkt.src == own_ip:
       if src in tcp:
-        if frame.seq < tcp[src].outseq:
-          print "OUT OF ORDER PACKET --- OUTGOING --- ZOMG PONIES!!!"
-        tcp[src].push_out((frame.seq, frame.data))
+        #if segment.seq < tcp[src].outseq:
+        #  print "OUT OF ORDER PACKET --- OUTGOING --- ZOMG PONIES!!!"
+        tcp[src].put_out((segment.seq, segment.data))
         tcp[src].assemble_out()
-        if frame.seq >= tcp[src].outseq_max:
-          tcp[src].outseq_max = frame.seq
+        if segment.seq >= tcp[src].outseq_max:
+          tcp[src].outseq_max = segment.seq
         if not tcp[src].module:
           classify(tcp[src])
         else:
           tcp[src].handle()
       else:
-        newconnection(dst, src, frame.data)
+        newconnection(tcp, dst, src, segment.data)
     # incoming packet
     else:
       if dst in tcp:
-        if frame.seq < tcp[dst].inseq:
-          print "OUT OF ORDER PACKET --- INCOMING --- ZOMG PONIES!!!"
-        tcp[dst].push_in((frame.seq, frame.data))
+        #if segment.seq < tcp[dst].inseq:
+        #  print "OUT OF ORDER PACKET --- INCOMING --- ZOMG PONIES!!!"
+        tcp[dst].put_in((segment.seq, segment.data))
         tcp[dst].assemble_in()
-        if frame.seq >= tcp[dst].inseq_max:
-          tcp[dst].inseq_max = frame.seq
+        if segment.seq >= tcp[dst].inseq_max:
+          tcp[dst].inseq_max = segment.seq
         if not tcp[dst].module:
           classify(tcp[dst])
         else:
           tcp[dst].handle()
       else:
-        newconnection(src, dst, frame.data)
+        newconnection(tcp, src, dst, segment.data)
 
+    return nfqueue.NF_STOP
 #    if pkt.src == own_ip: {{{
 #      if tcp[src].module:
 #        tcp[src].handle()
@@ -186,26 +164,18 @@ def cb(payload):
 #      if tcp[dst].module:
 #        tcp[dst].handle()
 
-    # Annahme: irgendein Handler war passend TODO
-    # TODO wenn FIN kommt, tcp[src|dst] aufraeumen
-    # Annahme2: alle Pakete sind schon da und in der richtigen Reihenfolge
-    # Hier auch dann die Gegenrichtung verarbeiten, damit (HTTP)
-    # Request+Response gemeinsam ausgewertet werden koennen }}}
+# Annahme: irgendein Handler war passend TODO }}}
              
-    #payload.set_verdict(nfqueue.NF_ACCEPT)
-    #sys.stdout.flush()
-    return 1
 
-def newconnection(src, dst, data = ''):
+def newconnection(l3, src, dst, data = ''):
   """ src: client tuple (ip, port)
   dst: server tuple(ip, port)
   data: sent/received data, may be empty """
-  tcp[dst] = Connection(None, src, dst) 
-  tcp[dst].incoming += data
-  classify(tcp[dst])
+  l3[dst] = Tcpconnection(None, src, dst) 
+  l3[dst].incoming += data
+  classify(l3[dst])
 
 def classify(connection):
-  """ connection is a list [protocolhandler = None, data] """
   for protocol in protocols:
     if protocol.classify(connection):
       connection.module = protocol
@@ -270,7 +240,7 @@ if __name__ == '__main__':
   print "sparring working in %s mode" % mode
   global own_ip
   # TODO funktioniert nicht immer
-  own_ip = inet_aton('192.168.1.149') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  own_ip = inet_aton('192.168.0.100') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   print "using %s as own IP address" % inet_ntoa(own_ip)
 
   sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'lib'))
