@@ -1,7 +1,8 @@
 #!/usr/bin/env python
 import sys, os, nfqueue, dpkt
 from dpkt import ip
-from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname
+from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname, socket
+import socket
 #from pudb import set_trace; set_trace()
 
 # local import below!
@@ -9,7 +10,7 @@ from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, ge
 count = 0
 nodata_count = 0
 queueno = 0
-protocols = []
+applications = []
 modes = ['TRANSPARENT', 'HALF', 'FULL']
 
 tcp = None
@@ -17,9 +18,8 @@ udp = None
 
 def cb(payload):
     global count, nodata_count
-
-    # TODO REMOVE
-    payload.set_verdict(nfqueue.NF_STOP)
+# TODO REMOVE
+    #payload.set_verdict(nfqueue.NF_STOP)
 
     count += 1
 
@@ -32,9 +32,9 @@ def cb(payload):
       payload.set_verdict(nfqueue.NF_DROP)
       return
 
-    # TODO XXX  return-Wert nur das VERDICT, wir wollen aber auch, falls
+    # TODO XXX  return-Wert nur das VERDICT, wir wollen aber auch, falls {{{
     # noetig, set_verdict_modified() aufrufen koennen. Meer returnen oder
-    # payload uebergeben und die Funktion selber VERDICT setzen lassen?
+    # payload uebergeben und die Funktion selber VERDICT setzen lassen? }}}
     if pkt.p == dpkt.ip.IP_PROTO_TCP:
       ret = tcp.handle(pkt)
       payload.set_verdict(ret[1])
@@ -51,9 +51,6 @@ def cb(payload):
       elif frame.type == dpkt.icmp.ICMP_ECHOREPLY:
         print "ICMP REPLY from %s" % inet_ntoa(pkt.src)
         return
-      #if frame.type >= dpkt.icmp.ICMP_UNREACH and \
-      #   frame.type <= dpkt.icmp.ICMP_UNREACH_PRECEDENCE_CUTOFF:
-      #  return
       else:
         return
     else:
@@ -78,18 +75,18 @@ def print_connections():
     if conn.inseq < conn.inseq_max:
       print "  WARNING un-ACK-ed data in buffer"
 
-def load_modules(mod_dir):
-  sys.path.append(mod_dir)
-  mod_list = os.listdir(mod_dir)
+def load_applications(app_dir):
+  sys.path.append(app_dir)
+  mod_list = os.listdir(app_dir)
   for module in mod_list:
     try:
       module_name, module_ext = os.path.splitext(module)
       if module_ext == '.py':
         mod = __import__(module_name)
-        protocols.append(mod.init(mode))
+        applications.append(mod.init(mode))
         del mod
     except ImportError, e:
-      print "import of module %s failed" % module
+      print "import of module %s failed: %s" % (module, e)
 
 def nfq_setup():
   q = nfqueue.queue()
@@ -104,21 +101,41 @@ def nfq_setup():
       q.try_run()
   except KeyboardInterrupt, e:
       pass
+
+  q.unbind(AF_INET)
+  q.close()
+
+def print_stats():
+  for application in applications:
+    if [method for method in dir(application) if callable(getattr(application, method))].count('get_stats') == 1:
+      print "\n STATISTICS for protocol %s" % application.protocols()[0]
+      application.get_stats()
+    else:
+      print "no stats available for protocol %s" % application.protocols()[0]
+
+def setup(mode):
+  if mode == 'TRANSPARENT':
+    nfq_setup()
+  else:
+    create_listener()
+    pass
+  shutdown()
+
+def create_listener():
+  from sparringserver import Sparringserver 
+  import asyncore
+  server = Sparringserver('localhost', 5000, tcp)
+  #server = Sparringserver('localhost', 5001, udp)
+  try:
+    asyncore.loop()
+  except KeyboardInterrupt, e:
+    pass
   
+def shutdown():
   print "\n%d packets handled (%d without data)" % (count, nodata_count)
   #print "Connection table"
   #print_connections()
-  q.unbind(AF_INET)
-  q.close()
   print_stats()
-
-def print_stats():
-  for protocol in protocols:
-    if [method for method in dir(protocol) if callable(getattr(protocol, method))].count('get_stats') == 1:
-      print "\n STATISTICS for protocol %s" % protocol.protocols()[0]
-      protocol.get_stats()
-    else:
-      print "no stats available for protocol %s" % protocol.protocols()[0]
 
 if __name__ == '__main__':
   mode = modes[0]
@@ -126,24 +143,22 @@ if __name__ == '__main__':
   global own_ip
   # TODO funktioniert nicht immer
   # eigentlich eine Liste (inkl. Broadcastadresse)
-  own_ip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
-  own_ip = inet_aton('192.168.0.100') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  #own_ip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  own_ip = inet_aton('192.168.1.149') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   print "using %s as own IP address" % inet_ntoa(own_ip)
 
   sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'lib'))
-  sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'protocols'))
+  sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'transports'))
+  import tcp, udp
+  tcp = tcp.Tcp(mode, applications, own_ip)
+  udp = udp.Udp(mode, applications, own_ip)
 
-  mod_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),'modules')
-  load_modules(mod_dir)
+  app_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),'applications')
+  load_applications(app_dir)
 
   print "Loaded modules ",
-  for protocol in protocols:
-    print protocol.protocols(),
+  for application in applications:
+    print application.protocols(),
   print 
 
-  import tcp, udp
-  tcp = tcp.Tcp(mode, protocols, own_ip)
-  udp = udp.Udp(mode, protocols, own_ip)
-
-  nfq_setup()
-
+  setup(mode)
