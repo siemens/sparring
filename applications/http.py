@@ -9,9 +9,6 @@ def init(mode):
 
 class Httpstats(Stats):
 
-  def __init__(self):
-    Stats.__init__(self)
-
   def addserver(self, server, proxy = None):
     if server in self.cats['Server']:
       return
