@@ -13,6 +13,18 @@ IP Userspace queueing via NETLINK (symbol IP_NF_QUEUE) must  *NOT* be enabled!
   │             -> Netfilter Xtables support (required for ip_tables) (NETFILTER_XTABLES [=y])     
   │   Depends on: NET [=y] && INET [=y] && NETFILTER [=y] && NETFILTER_XTABLES [=y] && NETFILTER_ADVANCED [=y]
 
+IP: policy routing
+  │     -> Networking support (NET [=y])
+  |        -> Networking options
+  |           -> TCP/IP networking (INET [=y])
+  |              -> IP: advanced router (IP_ADVANCED_ROUTER [=y])
+
+
+TPROXY + TPROXY Target support in kernel
+CONFIG_NETFILTER_XT_MATCH_SOCKET Socket match support
+CONFIG_NETFILTER_XT_TARGET_MARK  mark target support
+
 python-2.7
 python-nfqueue (runtime: libnetfilter-queue, build-time: libnetfilter-queue, swig, cmake)
 dpkt
+webob
