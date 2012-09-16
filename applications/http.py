@@ -54,7 +54,14 @@ class Http():
     #for server, details in self.servers.items():
     #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
 
-  def log_request(self, http):
+  def log_request(self, http, conn):
+    # be careful to count the connection for http://server,
+    # not the proxy server (conn.remote)!
+    # TODO ACHTUNG es kann zu einem Proxy/Server immer mehrere Verbindungen
+    # durch unterschiedliche (lokale) Ports geben, diese koennen auch
+    # ueberlappen, ist das in den Statistiken ein Problem?
+    server = conn.proxy if conn.proxy else conn.remote
+
     # CONNECT method or transparent proxy used
     if http.method == 'CONNECT' or \
         (http.method == 'GET' and self.httpuri(http.path)):
@@ -85,6 +92,57 @@ class Http():
         conn.outgoing = qry + conn.outgoing
         print "-----%s\n>>>\n%s<<<" % (e, conn.outgoing)
 
+  def log_response(self, http, conn):
+    if http.content_type != 'text/html':
+      pass
+    else:
+      pass
+
+    if http.status_int == 301:
+      self.stats.addresponse(conn.remote, http.status + " " + http.headers['location'])
+    else:
+      self.stats.addresponse(conn.remote, http.status)
+
+  def more_incoming_needed(self, conn):
+    if not conn.in_extra:
+      conn.in_extra = {}
+    # TODO _after_ the header was sent (i.e. split[1] is not empty below)
+    # and no content-length was found suppress parsing until the connection
+    # gets closed [ ignores HTTP pipelining as only one body's length can be
+    # stored in the dictionary ]
+    if not 'length' in conn.in_extra:
+      header = conn.incoming.split('\r\n\r\n', 1)[0]
+      for val in header.split('\r\n'):
+        if val.split(':')[0].lower() == 'content-length':
+          conn.in_extra['length'] = int(val.split(':')[1])
+
+    # skip parsing if body was not fully sent
+    if 'length' in conn.in_extra and len(conn.incoming) < conn.in_extra['length']:
+      return True
+    return False
+
+  def create_request(self, outgoing):
+    request = webob.Request.from_bytes(outgoing) 
+    # take care to cut off the dangling \r\n
+    size = len(request.as_string())+2
+    return (request, size)
+
+  def create_response(self, incoming):
+    h = StringIO.StringIO(incoming)
+    # webob does not want the HTTP/x.y -part of the response header
+    h.seek(9)
+    http = webob.Response.from_file(h)
+    h.close()
+
+    # HTTP/1.1 123 McCain\r\n
+    size = 9+len(http.status)+2
+    for x in http.headerlist:
+          # x[0]: x[1]\r\n
+          size += len(x[0])+2+len(x[1])+2
+    # '\r\n'
+    size += 2
+    size += len(http.body)
+    return (http, size)
 
   def handle(self, conn):
     if self.mode == 'TRANSPARENT':
@@ -97,101 +155,27 @@ class Http():
   def handle_transparent(self, conn):
     request = None
     response = None
-    # be careful to count the connection for http://server,
-    # not the proxy server (conn.remote)!
-    # TODO ACHTUNG es kann zu einem Proxy/Server immer mehrere Verbindungen
-    # durch unterschiedliche (lokale) Ports geben, diese koennen auch
-    # ueberlappen, ist das in den Statistiken ein Problem?
-    server = conn.proxy if conn.proxy else conn.remote
 
     while conn.outgoing:
       try:
-        http = webob.Request.from_bytes(conn.outgoing) 
-        request = http
-        # take care to cut off the dangling \r\n
-        conn.outgoing = conn.outgoing[len(http.as_string())+2:]
-        #log_request(http)        
-        # CONNECT method or transparent proxy used
-        if http.method == 'CONNECT' or \
-           (http.method == 'GET' and self.httpuri(http.path)):
-          conn.proxy = server
-          self.stats.setproxy(self.uri2serverport(http.path), conn.proxy)
-
-        if http.method == 'GET':
-          self.stats.addget(conn.remote, http.url)
-
-        if http.method == 'POST':
-          try:
-            filename = None
-            for k, v in http.POST.items():
-              #print k
-              try:
-                if v.filename:
-                  import shutil, tempfile
-                  w = tempfile.NamedTemporaryFile(dir='/tmp', delete = False)
-                  #w = open('/tmp/xxx', 'wb')
-                  shutil.copyfileobj(v.file, w)
-                  w.close()
-                  filename = v.filename
-                  self.stats.addpost(conn.remote, http.url + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
-              except Exception,e:
-                  self.stats.addpost(conn.remote, http.url + " %s=%s" % (k, v))
-          except Exception,e:
-            # stuff the query back into the send buffer
-            conn.outgoing = qry + conn.outgoing
-            print "-----%s\n>>>\n%s<<<" % (e, conn.outgoing)
-            break
-      except:
+        request, size = self.create_request(conn.outgoing)
+        conn.outgoing = conn.outgoing[size:]
+        self.log_request(request, conn)
+      except Exception,e: 
+        print e
         break
 
     while conn.incoming:
 
-      if not conn.in_extra:
-        conn.in_extra = {}
-      # TODO _after_ the header was sent (i.e. split[1] is not empty below)
-      # and no content-length was found suppress parsing until the connection
-      # gets closed [ ignores HTTP pipelining as only one body's length can be
-      # stored in the dictionary ]
-      if not 'length' in conn.in_extra:
-        header = conn.incoming.split('\r\n\r\n', 1)[0]
-        for val in header.split('\r\n'):
-          if val.split(':')[0].lower() == 'content-length':
-            conn.in_extra['length'] = int(val.split(':')[1])
-
-      # skip parsing if body was not fully sent
-      if conn.in_extra and 'length' in conn.in_extra and len(conn.incoming) < conn.in_extra['length']:
+      if self.more_incoming_needed(conn):
         break
 
       # schneidet sofort ab weil webob.Response() keine Exception bei zu kurzem Header wirft
       # TODO webob.from_file() braucht content-length-Header fuer korrektes Parsing.
       try:
-        h = StringIO.StringIO(conn.incoming)
-        # webob does not want the HTTP/1.1 -part of the response header
-        h.seek(9)
-        http = webob.Response.from_file(h)
-        response = http
-        h.close()
-
-        # HTTP/1.1 123 McCain\r\n
-        size = 9+len(http.status)+2
-        for x in http.headerlist:
-              # x[0]: x[1]\r\n
-              size += len(x[0])+2+len(x[1])+2
-        # '\r\n'
-        size += 2
-        size += len(http.body)
-
+        response, size = self.create_response(conn.incoming)
         conn.incoming = conn.incoming[size:]
-
-        if http.content_type != 'text/html':
-          pass
-        else:
-          pass
-
-        if http.status_int == 301:
-          self.stats.addresponse(conn.remote, http.status + " " + http.headers['location'])
-        else:
-          self.stats.addresponse(conn.remote, http.status)
+        self.log_response(response, conn)
 
         # parsing succeeded, clear Content-Length of http-header
         try:
@@ -207,7 +191,9 @@ class Http():
   def handle_half(self, conn):
     request, response = self.handle_transparent(conn)
     if request:
+      log_request(http, conn)
       response = request.get_response()
+      log_response(http, conn)
     pass
 
   def handle_full(self, conn):
