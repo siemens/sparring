@@ -30,8 +30,11 @@ class Tcphandler(asynchat.async_chat):
     #  self.send(conn.outgoing)
 
   def handle_close(self):
-      del self.conn # TODO aus oberer instanz loeschen?
-      self.close()
+    if self.conn.incoming or self.conn.outgoing:
+      print "not all data handled!"
+
+    del self.conn # TODO aus oberer instanz loeschen?
+    self.close()
 
 class Udphandler(asynchat.async_chat):
   def handle_read(self):

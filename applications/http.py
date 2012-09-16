@@ -1,6 +1,6 @@
 from stats import Stats
 import urlparse
-import webob
+import webob, StringIO
 from socket import inet_ntoa
 #from pudb import set_trace; set_trace()
 
@@ -18,27 +18,23 @@ class Httpstats(Stats):
     self.addserver(server)
     self.cats['Server'][server][0] = proxy
 
-  def addget(self, server, host, uri):
+  def addget(self, server, uri):
     self.addserver(server)
-    # TODO: http vs. https!
-    # TODO: webob benutzen!
-    u = urlparse.urlparse('//' + host + uri, 'http')
-    self.cats['Server'][server] += [ 'GET ' + u.geturl() ]
+    self.cats['Server'][server] += [ ('GET ' + uri, None) ]
   
-  def addpost(self, server, host, uri, file=None, original=None):
+  def addpost(self, server, uri, file=None, original=None):
     self.addserver(server)
     if not self.cats.has_key('Files'):
       self.cats['Files'] = []
     if file:
       self.cats['Files'] += [file + ' original: ' + original ]
-    u = urlparse.urlparse('//' + host + uri, 'http')
-    self.cats['Server'][server] += [ 'POST ' + u.geturl() ] 
-  
+    self.cats['Server'][server] += [ ('POST ' + uri, None) ] 
+
   def addresponse(self, server, status):
     if server in self.cats['Server']:
       req = self.cats['Server'][server].pop()
       # TODO noch nicht ganz
-      self.cats['Server'][server].append((req, status))
+      self.cats['Server'][server].append((req[0], status))
 
 class Http():
   stats = Httpstats()
@@ -46,7 +42,6 @@ class Http():
   def __init__(self, mode):
     # one of TRANSPARENT, FULL, HALF
     self.mode = mode
-    #print '%s initialisiert [%s]' % (__name__,self.mode)
 
   def protocols(self):
     return ['http']
@@ -59,6 +54,38 @@ class Http():
     #for server, details in self.servers.items():
     #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
 
+  def log_request(self, http):
+    # CONNECT method or transparent proxy used
+    if http.method == 'CONNECT' or \
+        (http.method == 'GET' and self.httpuri(http.path)):
+      conn.proxy = server
+      self.stats.setproxy(self.uri2serverport(http.path), conn.proxy)
+
+    if http.method == 'GET':
+      self.stats.addget(conn.remote, http.url)
+
+    if http.method == 'POST':
+      try:
+        filename = None
+        for k, v in http.POST.items():
+          #print k
+          try:
+            if v.filename:
+              import shutil, tempfile
+              w = tempfile.NamedTemporaryFile(dir='/tmp', delete = False)
+              #w = open('/tmp/xxx', 'wb')
+              shutil.copyfileobj(v.file, w)
+              w.close()
+              filename = v.filename
+              self.stats.addpost(conn.remote, http.url + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
+          except Exception,e:
+            self.stats.addpost(conn.remote, http.url + " %s=%s" % (k, v))
+      except Exception,e:
+        # stuff the query back into the send buffer
+        conn.outgoing = qry + conn.outgoing
+        print "-----%s\n>>>\n%s<<<" % (e, conn.outgoing)
+
+
   def handle(self, conn):
     if self.mode == 'TRANSPARENT':
       self.handle_transparent(conn)
@@ -68,6 +95,8 @@ class Http():
       self.handle_full(conn)
 
   def handle_transparent(self, conn):
+    request = None
+    response = None
     # be careful to count the connection for http://server,
     # not the proxy server (conn.remote)!
     # TODO ACHTUNG es kann zu einem Proxy/Server immer mehrere Verbindungen
@@ -78,8 +107,10 @@ class Http():
     while conn.outgoing:
       try:
         http = webob.Request.from_bytes(conn.outgoing) 
-        conn.outgoing = conn.outgoing[len(http.as_string()):]
-        
+        request = http
+        # take care to cut off the dangling \r\n
+        conn.outgoing = conn.outgoing[len(http.as_string())+2:]
+        #log_request(http)        
         # CONNECT method or transparent proxy used
         if http.method == 'CONNECT' or \
            (http.method == 'GET' and self.httpuri(http.path)):
@@ -87,7 +118,7 @@ class Http():
           self.stats.setproxy(self.uri2serverport(http.path), conn.proxy)
 
         if http.method == 'GET':
-          self.stats.addget(conn.remote, http.host, http.path)
+          self.stats.addget(conn.remote, http.url)
 
         if http.method == 'POST':
           try:
@@ -102,9 +133,9 @@ class Http():
                   shutil.copyfileobj(v.file, w)
                   w.close()
                   filename = v.filename
-                  self.stats.addpost(conn.remote, http.host, http.path + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
+                  self.stats.addpost(conn.remote, http.url + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
               except Exception,e:
-                  self.stats.addpost(conn.remote, http.host, http.path + " %s=%s" % (k, v))
+                  self.stats.addpost(conn.remote, http.url + " %s=%s" % (k, v))
           except Exception,e:
             # stuff the query back into the send buffer
             conn.outgoing = qry + conn.outgoing
@@ -132,22 +163,23 @@ class Http():
         break
 
       # schneidet sofort ab weil webob.Response() keine Exception bei zu kurzem Header wirft
-      # exception bei: body = split[1] TODO
+      # TODO webob.from_file() braucht content-length-Header fuer korrektes Parsing.
       try:
-        split = conn.incoming.split('\r\n\r\n', 1)
-        header = split[0]
-        body = split[1]
-        # totalsize is header + body length + len('\r\n\r\n')
-        size = len(header) + len(body) + 4
+        h = StringIO.StringIO(conn.incoming)
+        # webob does not want the HTTP/1.1 -part of the response header
+        h.seek(9)
+        http = webob.Response.from_file(h)
+        response = http
+        h.close()
 
-        http = webob.Response(split[1])
-
-        # TODO des kanns ja eigentlich nicht sein...
-        for val in header.split('\r\n'):
-          try:
-            http.headers.add(val.split(':', 1)[0], val.split(': ', 1)[1])
-          except:
-            pass
+        # HTTP/1.1 123 McCain\r\n
+        size = 9+len(http.status)+2
+        for x in http.headerlist:
+              # x[0]: x[1]\r\n
+              size += len(x[0])+2+len(x[1])+2
+        # '\r\n'
+        size += 2
+        size += len(http.body)
 
         conn.incoming = conn.incoming[size:]
 
@@ -156,21 +188,26 @@ class Http():
         else:
           pass
 
+        if http.status_int == 301:
+          self.stats.addresponse(conn.remote, http.status + " " + http.headers['location'])
+        else:
+          self.stats.addresponse(conn.remote, http.status)
+
         # parsing succeeded, clear Content-Length of http-header
         try:
-          del conn.in_extra['length'] # TODO re-enable
-          #if http.status_int == 301:
-          #  self.stats.addresponse(conn.remote, http.status + " " + http.headers['location'])
-          #else:
-          #  self.stats.addresponse(conn.remote, http.status)
+          del conn.in_extra['length']
         except:
           pass
       except Exception, e: 
-        #print str(e) + " yyy"
+        h.close()
+        #print str(e) + "\nconn.incoming:----------------------\n" + conn.incoming
         break
+    return (request, response)
 
   def handle_half(self, conn):
-    self.handle_transparent(conn)
+    request, response = self.handle_transparent(conn)
+    if request:
+      response = request.get_response()
     pass
 
   def handle_full(self, conn):
@@ -212,7 +249,7 @@ class Http():
   def fast_unzip(self, comp):
     # TODO was passiert bei exception und return dec?
     try:
-      import gzip, StringIO
+      import gzip
       handle = StringIO.StringIO(comp)
       gzip_handle = gzip.GzipFile(fileobj=handle)
       dec = gzip_handle.read()
