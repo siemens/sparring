@@ -22,6 +22,7 @@ class Tcp(Transport):
       # TODO wenn FIN kommt, self.connections[src|dst] aufraeumen (leeren/letzes handle())
       if len(segment.data) == 0:
         if (segment.flags & dpkt.tcp.TH_ACK) != 0:
+          #print "src: %s dst:%s" % (src, dst)
           # outgoing packet
           if pkt.src == self.own_ip:
             if not src in self.connections:
@@ -33,7 +34,8 @@ class Tcp(Transport):
             if self.connections[src].module:
               self.connections[src].handle()
           # incoming packet
-          elif dst in self.connections:
+          #elif dst in self.connections:
+          else:
             if not dst in self.connections:
               self.newconnection(dst, src)
             self.connections[dst].outseq = segment.ack
