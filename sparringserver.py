@@ -3,10 +3,12 @@ import asyncore
 import socket
 #from pudb import set_trace; set_trace()
 
-class Tcphandler(asynchat.async_chat):
+#class Tcphandler(asynchat.async_chat):
+class Tcphandler(asyncore.dispatcher):
 
   def __init__(self, conn, sock=None, map=None):
-      asynchat.async_chat.__init__(self, sock, map)
+      #asynchat.async_chat.__init__(self, sock, map)
+      asyncore.dispatcher.__init__(self, sock, map)
       self.conn = conn
 
   def handle_read(self):
@@ -16,22 +18,44 @@ class Tcphandler(asynchat.async_chat):
         #print "sending back %s" % data
         #self.send(data)
 
-        # we don't use conn.put_in() because for TCP connections there's no
-        # need to reassemble the data as our underlying socket did that
+        # we don't use conn.put_in() because there's no need for TCP 
+        # connections to reassemble the data as our underlying socket did that
         # already for us. So just fill the incoming buffer
         self.conn.outgoing += data
         if self.conn.classify():
           self.conn.handle()
+        #if self.conn.out_extra and 'buffer' in self.conn.out_extra and \
+        #      self.conn.out_extra['buffer'] :
+        #  sent = self.send(self.conn.out_extra['buffer'])
+        #  self.conn.out_extra['buffer'] = self.conn.out_extra['buffer'][sent:]
+  
+  def writeable(self):
+    return self.conn.out_extra and 'buffer' in self.conn.out_extra and len(self.conn.out_extra['buffer']) > 0
 
   def handle_write(self):
-    pass
-    # TODO buffering a la man page?
-    #if self.conn.outgoing:
-    #  self.send(conn.outgoing)
+    if self.conn.out_extra and 'buffer' in self.conn.out_extra and \
+          self.conn.out_extra['buffer'] :
+      try:
+        sent = self.send(self.conn.out_extra['buffer'])
+        self.conn.out_extra['buffer'] = self.conn.out_extra['buffer'][sent:]
+      except Exception, e:
+        print "die exception macht mir gar nix...",
+        print e
+
+      if len(self.conn.out_extra['buffer']) != 0:
+        pass
+        #print "buffer not fully sent :|"
+      else:
+        #print "buffer fully sent :3"
+        self.handle_close()
+      # TODO let application/*.py:handle_{half,full} determine connection
+      # close actions?
+      #if not self.conn.out_extra['buffer']:
+      #  self.handle_close()
 
   def handle_close(self):
     if self.conn.incoming or self.conn.outgoing:
-      print "not all data handled!"
+      print " 3: not all data handled!"
 
     del self.conn # TODO aus oberer instanz loeschen?
     self.close()
@@ -56,6 +80,8 @@ class Sparringserver(asyncore.dispatcher):
     self.bind(('', port))
     self.listen(5)
 
+  # TODO Teile eventuell nach handle_connect() auslagern, das erst spaeter im
+  # Verbindungsaufbau (erfolg) greift?
   def handle_accept(self):
     pair = self.accept()
     if pair is None:
@@ -66,11 +92,16 @@ class Sparringserver(asyncore.dispatcher):
       # sock.getsockname() == us
       # TODO noch nicht ganz richtig ;)
       local = sock.getsockname()
+      # TODO may raise exception, too, WTF :)
       remote = sock.getpeername()
-      src = (socket.inet_aton(remote[0]),remote[1]) 
-      dst = (socket.inet_aton(local[0]),local[1])
+      dst = (socket.inet_aton(remote[0]),remote[1]) 
+      src = (socket.inet_aton(local[0]),local[1])
       conn = self.transport.newconnection(src, dst)
       handler = Tcphandler(conn, sock)
+
+  def handle_error(self):
+    print "ERROR aussen (Sparringserver)"
+    raise
 
 if __name__ == 'main':
   import tcp # TODO will break :-)
