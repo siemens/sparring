@@ -2,6 +2,7 @@
 import sys, os, nfqueue, dpkt
 from dpkt import ip
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname, socket
+import getopt
 import socket
 #from pudb import set_trace; set_trace()
 
@@ -137,8 +138,29 @@ def shutdown():
   #print_connections()
   print_stats()
 
+def usage():
+  print "usage: sparring.py [mode]"
+  print "modes:"
+  print "            -t run in TRANSPARENT mode"
+  print "            -h run in HALF        mode"
+  print "            -f run in FULL        mode"
+
 if __name__ == '__main__':
-  mode = modes[0]
+  modeopt = 0
+  try:                                
+    opts, args = getopt.getopt(sys.argv[1:], "thf") 
+    for opt in opts:
+      if opt[0][1] == 'f':
+        modeopt = 2
+      elif opt[0][1] == 'h':
+        modeopt = 1
+      else:
+        modeopt = 0
+  except: #getopt.GetoptError, ValueError:           
+    usage()                          
+    sys.exit(2)           
+
+  mode = modes[modeopt]
   print "sparring working in %s mode" % mode
   global own_ip
   # TODO funktioniert nicht immer
