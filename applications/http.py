@@ -1,7 +1,8 @@
 from stats import Stats
 import urlparse
-import webob, StringIO
-from socket import inet_ntoa
+import webob, StringIO, re
+from socket import inet_ntoa, inet_aton
+from pprint import pprint
 #from pudb import set_trace; set_trace()
 
 def init(mode):
@@ -125,6 +126,9 @@ class Http():
     request = webob.Request.from_bytes(outgoing) 
     # take care to cut off the dangling \r\n
     size = len(request.as_string())+2
+    # take %-encoded URIs into account that got encoded by webob
+    size += len(re.findall('%[0-9A-Fa-f]{2}', request.url))*2
+
     return (request, size)
 
   def create_response(self, incoming):
@@ -160,9 +164,13 @@ class Http():
       try:
         request, size = self.create_request(conn.outgoing)
         conn.outgoing = conn.outgoing[size:]
+        # exact size of request is not 100% reliably detected
+        conn.outgoing = conn.outgoing.lstrip('\n\r')
         self.log_request(request, conn)
       except Exception,e: 
-        print e
+        #print e
+        #print "--------------------------"
+        #pprint(conn.outgoing)
         break
 
     while conn.incoming:
@@ -175,6 +183,7 @@ class Http():
       try:
         response, size = self.create_response(conn.incoming)
         conn.incoming = conn.incoming[size:]
+        conn.incoming = conn.incoming.lstrip('\n\r')
         self.log_response(response, conn)
 
         # parsing succeeded, clear Content-Length of http-header
@@ -183,7 +192,7 @@ class Http():
         except:
           pass
       except Exception, e: 
-        h.close()
+        #print e
         #print str(e) + "\nconn.incoming:----------------------\n" + conn.incoming
         break
     return (request, response)
@@ -191,14 +200,25 @@ class Http():
   def handle_half(self, conn):
     request, response = self.handle_transparent(conn)
     if request:
-      log_request(http, conn)
+      request.server_name = inet_ntoa(conn.remote[0])
+      request.server_port = conn.remote[1]
+      # TODO FOR TESTING PURPOSES ONLY TODO
+      #request.server_name = '88.198.38.228'
+      #request.server_port = 80
+      #request.host = 'serverop.de'
+      # TODO REMOVE TODO
       response = request.get_response()
-      log_response(http, conn)
-    pass
+      #print "forwarded: %s" % request.url
+      # TODO insert RULER and MODIFIER here
+      self.log_response(response, conn)
+      conn.out_extra = {}
+      conn.out_extra['buffer'] = 'HTTP/1.1 ' + str(response)
 
   def handle_full(self, conn):
-    self.handle_transparent(conn)
-    pass
+    request, response = self.handle_transparent(conn)
+    if request:
+      conn.out_extra = {}
+      conn.out_extra['buffer'] = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 14\r\n\r\n<h1>hola!</h1>'
 
   def decode_body(self, http):
     if http.content_encoding == 'gzip':
