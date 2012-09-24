@@ -5,11 +5,16 @@ class Stats():
   def __init__(self):
     self.cats = {}
     self.cats['Server'] = {}
+    self.servers = {}
 
   def addserver(self, server, proxy = None):
     if server in self.cats['Server']:
       return
     self.cats['Server'][server] = []
+
+  def addserver2(self, server, meta={}):
+    if not server in self.servers:
+      self.servers[server] = Server(server, meta)
 
   # default output is generated in a haskellesque way
   def p(self, x, level):
@@ -34,4 +39,14 @@ class Stats():
 
   def __str__(self):
     return self.p(self.cats, 0)
+
+class Server():
+
+  def __init__(self, address, meta={}):
+    self.address = address
+    self.meta = meta
+    self.channel = {}
+
+  def __str__(self):
+    return self.address + '\n' + self.meta + '\n' + self.channel
 
