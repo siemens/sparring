@@ -106,14 +106,14 @@ class Tcpconnection(Connection):
     #while len(self.inbuf) > 0 and min(self.inbuf)[0] <= self.inseq:
     try:
       while self.inqueue.queue[0][0] <= self.inseq:
-        self.incoming += self.inqueue.get()[1]
+        self.incoming.write(self.inqueue.get()[1])
     except:
       pass
 
   def assemble_out(self):
     try:
       while self.outqueue.queue[0][0] <= self.outseq:
-        self.outgoing += self.outqueue.get()[1]
+        self.outgoing.write(self.outqueue.get()[1])
     except:
       pass
 

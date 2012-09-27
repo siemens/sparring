@@ -1,12 +1,13 @@
 from Queue import Queue
+import cStringIO
 
 class Connection():
   def __init__(self, transport, (l, lport), (r, rport), module = None):
     self.transport = transport
     self.module = module
-    self.outgoing = ''
+    self.outgoing = cStringIO.StringIO()
     self.outqueue = Queue()
-    self.incoming = ''
+    self.incoming = cStringIO.StringIO()
     self.inqueue = Queue()
     self.local = (l, lport)
     self.remote = (r, rport)
@@ -16,11 +17,11 @@ class Connection():
 
   def put_in(self, t):
     """ add new data to the buffer """
-    self.incoming += t
+    self.incoming.write(t)
 
   def put_out(self, t):
     """ add new data to the buffer """
-    self.outgoing += t
+    self.outgoing.write(t)
 
   def handle(self):
     if self.module:

@@ -99,7 +99,7 @@ def nfq_setup():
   q.set_queue_maxlen(5000)
   
   try:
-      q.try_run()
+    q.try_run()
   except KeyboardInterrupt, e:
       pass
 
