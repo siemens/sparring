@@ -1,8 +1,9 @@
 from stats import Stats
 import urlparse
-import webob, StringIO, re
+import webob, cStringIO, re
 from socket import inet_ntoa, inet_aton
 from pprint import pprint
+from os import SEEK_CUR, SEEK_END, SEEK_SET
 #from pudb import set_trace; set_trace()
 
 def init(mode):
@@ -25,7 +26,7 @@ class Httpstats(Stats):
   
   def addpost(self, server, uri, file=None, original=None):
     self.addserver(server)
-    if not self.cats.has_key('Files'):
+    if not 'Files' in self.cats:
       self.cats['Files'] = []
     if file:
       self.cats['Files'] += [file + ' original: ' + original ]
@@ -48,7 +49,15 @@ class Http():
     return ['http']
 
   def classify(self, conn):
-    return (conn.incoming.split('\n', 1)[0].startswith('HTTP/') or conn.outgoing.split('\n', 1)[0][-9:][:5] == 'HTTP/')
+    conn.outgoing.reset()
+    out = conn.outgoing.readline()
+    conn.outgoing.seek(0, SEEK_END)
+    conn.incoming.reset()
+    inc = conn.incoming.readline()
+    conn.incoming.seek(0, SEEK_END)
+    if inc.startswith('HTTP/') or out[-10:][:5] == 'HTTP/':
+      self.setup(conn)
+      return True
 
   def get_stats(self):
     print self.stats
@@ -91,7 +100,7 @@ class Http():
       except Exception,e:
         # stuff the query back into the send buffer
         conn.outgoing = qry + conn.outgoing
-        print "-----%s\n>>>\n%s<<<" % (e, conn.outgoing)
+        print "-----%s\n>>>\n%s<<<" % (e, conn.outgoing.getvalue())
 
   def log_response(self, http, conn):
     if http.content_type != 'text/html':
@@ -105,20 +114,27 @@ class Http():
       self.stats.addresponse(conn.remote, http.status)
 
   def more_incoming_needed(self, conn):
-    if not conn.in_extra:
-      conn.in_extra = {}
+    pos = conn.incoming.tell()
+    conn.incoming.reset()
     # TODO _after_ the header was sent (i.e. split[1] is not empty below)
     # and no content-length was found suppress parsing until the connection
     # gets closed [ ignores HTTP pipelining as only one body's length can be
     # stored in the dictionary ]
     if not 'length' in conn.in_extra:
-      header = conn.incoming.split('\r\n\r\n', 1)[0]
-      for val in header.split('\r\n'):
-        if val.split(':')[0].lower() == 'content-length':
+      while True:
+        val = conn.incoming.readline()
+        if 'content-length: ' in val.lower():
           conn.in_extra['length'] = int(val.split(':')[1])
+          break
+        # response fully red or end of headers
+        if not val or val == '\r\n':
+          break
 
     # skip parsing if body was not fully sent
-    if 'length' in conn.in_extra and len(conn.incoming) < conn.in_extra['length']:
+    conn.incoming.seek(0, SEEK_END)
+    length = conn.incoming.tell()
+    conn.incoming.seek(pos)
+    if 'length' in conn.in_extra and length < conn.in_extra['length']:
       return True
     return False
 
@@ -132,7 +148,7 @@ class Http():
     return (request, size)
 
   def create_response(self, incoming):
-    h = StringIO.StringIO(incoming)
+    h = cStringIO.StringIO(incoming)
     # webob does not want the HTTP/x.y -part of the response header
     h.seek(9)
     http = webob.Response.from_file(h)
@@ -148,6 +164,18 @@ class Http():
     size += len(http.body)
     return (http, size)
 
+  def setup(self, conn):
+    if self.mode == 'HALF':
+      conn.in_extra = {}
+      conn.in_extra['buffer'] = ""
+      # close this connection
+      conn.in_extra['close'] = False
+    elif self.mode == 'FULL':
+      conn.in_extra = {}
+      conn.in_extra['buffer'] = ""
+      # close this connection
+      conn.in_extra['close'] = False
+
   def handle(self, conn):
     if self.mode == 'TRANSPARENT':
       self.handle_transparent(conn)
@@ -160,32 +188,46 @@ class Http():
     request = None
     response = None
 
-    while conn.outgoing:
+    # TODO gets called even if there is no new outgoing data but new incoming
+    # data. this *is* a performance issue -> tcp.py!
+    out = conn.outgoing.getvalue()
+    while out:
       try:
-        request, size = self.create_request(conn.outgoing)
-        conn.outgoing = conn.outgoing[size:]
+        request, size = self.create_request(out)
+        # TODO FIXME REMOVE
+        size = len(out)
+        conn.outgoing = self.ltruncate(conn.outgoing, size)
         # exact size of request is not 100% reliably detected
-        conn.outgoing = conn.outgoing.lstrip('\n\r')
+        # TODO FIXME tailor to cStringIO object / fix size calculation
+        #conn.outgoing = conn.outgoing.lstrip('\n\r')
         self.log_request(request, conn)
+        # TODO REENABLE
+        # vs out = conn.outgoing.getvalue()
+        out = out[size:]
+        #print "%d byte left in out to parse" % len(out)
       except Exception,e: 
         #print e
         #print "--------------------------"
-        #pprint(conn.outgoing)
+        #pprint(conn.outgoing.getvalue())
         break
 
-    while conn.incoming:
+    if self.more_incoming_needed(conn):
+      return (request, response)
 
-      if self.more_incoming_needed(conn):
-        break
+    inc = conn.incoming.getvalue()
+
+    while inc:
 
       # schneidet sofort ab weil webob.Response() keine Exception bei zu kurzem Header wirft
       # TODO webob.from_file() braucht content-length-Header fuer korrektes Parsing.
       try:
-        response, size = self.create_response(conn.incoming)
-        conn.incoming = conn.incoming[size:]
-        conn.incoming = conn.incoming.lstrip('\n\r')
+        response, size = self.create_response(inc)
+        # TODO FIXME REMOVE
+        size = len(inc)
+        conn.incoming = self.ltruncate(conn.incoming, size)
+        #conn.incoming = conn.incoming.lstrip('\n\r')
         self.log_response(response, conn)
-
+        inc = inc[size:]
         # parsing succeeded, clear Content-Length of http-header
         try:
           del conn.in_extra['length']
@@ -194,31 +236,28 @@ class Http():
       except Exception, e: 
         #print e
         #print str(e) + "\nconn.incoming:----------------------\n" + conn.incoming
+        #pprint(conn.incoming.getvalue())
         break
     return (request, response)
 
   def handle_half(self, conn):
     request, response = self.handle_transparent(conn)
+    assert(not response)
     if request:
       request.server_name = inet_ntoa(conn.remote[0])
       request.server_port = conn.remote[1]
-      # TODO FOR TESTING PURPOSES ONLY TODO
-      #request.server_name = '88.198.38.228'
-      #request.server_port = 80
-      #request.host = 'serverop.de'
-      # TODO REMOVE TODO
       response = request.get_response()
       #print "forwarded: %s" % request.url
       # TODO insert RULER and MODIFIER here
       self.log_response(response, conn)
-      conn.out_extra = {}
-      conn.out_extra['buffer'] = 'HTTP/1.1 ' + str(response)
+      conn.in_extra['buffer'] = 'HTTP/1.1 ' + str(response)
+      conn.in_extra['close'] = True
 
   def handle_full(self, conn):
     request, response = self.handle_transparent(conn)
     if request:
-      conn.out_extra = {}
-      conn.out_extra['buffer'] = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 14\r\n\r\n<h1>hola!</h1>'
+      conn.in_extra['buffer'] = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 14\r\n\r\n<h1>hola!</h1>'
+      conn.in_extra['close'] = True
 
   def decode_body(self, http):
     if http.content_encoding == 'gzip':
@@ -256,7 +295,7 @@ class Http():
     # TODO was passiert bei exception und return dec?
     try:
       import gzip
-      handle = StringIO.StringIO(comp)
+      handle = cStringIO.StringIO(comp)
       gzip_handle = gzip.GzipFile(fileobj=handle)
       dec = gzip_handle.read()
       gzip_handle.close()
@@ -275,4 +314,19 @@ class Http():
   def httpuri(self, uri):
     return uri.startswith('http://') or uri.startswith('https://')
 
+  # truncate _cStringIO_ objects
+  def ltruncate(self, f, bytes=None):
+    """ truncate given cStringIO object from the left
+    if bytes is an integer, truncate bytes many byte from f,
+    otherwise truncates f.tell() many bytes from f """
+
+    if bytes != None:
+      from os import SEEK_SET
+      f.seek(bytes, SEEK_SET)
+
+    h = cStringIO.StringIO()
+    h.write(f.read())
+    f.close()
+    del f
+    return h
 
