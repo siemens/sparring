@@ -1,5 +1,5 @@
 from stats import Stats
-import StringIO, re
+import cStringIO, re, irclib
 from socket import inet_ntoa, inet_aton
 from pprint import pprint
 #from pudb import set_trace; set_trace()
@@ -24,7 +24,7 @@ class Ircstats(Stats):
       return ret
 
   def addchannel(self, conn, channel):
-    if not self.servers[conn.remote].channel.has_key(channel):
+    if not channel in self.servers[conn.remote].channel:
       self.servers[conn.remote].channel[channel] = []
     return self.servers[conn.remote].channel[channel]
 
@@ -32,7 +32,7 @@ class Ircstats(Stats):
     self.servers[conn.remote].meta['Nick'] = nick
 
   def getnick(self, conn):
-    if self.servers[conn.remote].meta.has_key('Nick'):
+    if 'Nick' in self.servers[conn.remote].meta:
       return self.servers[conn.remote].meta['Nick']
     else:
       return None
@@ -53,8 +53,11 @@ class Irc():
 
   def classify(self, conn):
     nick = False
-    user = False
-    lines = conn.outgoing.splitlines()
+    user = True
+    pos = conn.outgoing.tell()
+    conn.outgoing.seek(0)
+    lines = conn.outgoing.readlines()
+    conn.outgoing.seek(pos)
     for l in lines:
       if l.startswith('NICK'):
         nick = True
@@ -62,21 +65,53 @@ class Irc():
       if l.startswith('USER'):
         user = True
     if nick and user:
-      print "FOUND IRC"
-    return nick and user
+      self.setup(conn)
+      return True
 
   def get_stats(self):
     print self.stats
     #for server, details in self.servers.items():
     #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
 
-  def irc_methods(self, conn, direction):
-    nick = 'DEFAULT'
+  def irc_in(self, conn):
     parsed = 0
-    if direction == 'out':
-      lines = conn.outgoing.splitlines()
-    else:
-      lines = conn.incoming.splitlines()
+    pos = conn.incoming.tell()
+    conn.incoming.seek(0)
+    lines = conn.incoming.readlines()
+    conn.incoming.seek(pos)
+    #if conn.outgoing.endswith('\n'):
+    #  msgs = len(lines)
+    #else:
+    #  # last message was not (yet) fully received
+    #  msgs = len(lines) - 1
+
+    for l in lines:
+      parsed += len(l)+1
+      try:
+        sender, arg = l.split(" ", 1)
+        sender = sender[1:]
+        arg = arg.rstrip()
+        cmd, msg = arg.split(" ", 1)
+        cmd = cmd.upper()
+        # incoming chatter
+        if cmd == 'JOIN':
+          self.stats.addchannel(conn, msg)
+        elif cmd == 'PRIVMSG':
+          chan, msg = msg.split(' :', 1)
+          self.stats.addmsg(conn, chan, "<%s> %s" % (sender, msg))
+        elif cmd in ['WHO', 'MODE', 'PING', 'WHOIS', 'PONG', 'PART', 'QUIT']:
+          pass
+      # other commands are ignored for now
+      except Exception, e:
+        pass
+    return parsed 
+
+  def irc_out(self, conn):
+    parsed = 0
+    pos = conn.outgoing.tell()
+    conn.outgoing.seek(0)
+    lines = conn.outgoing.readlines()
+    conn.outgoing.seek(pos)
     #if conn.outgoing.endswith('\n'):
     #  msgs = len(lines)
     #else:
@@ -87,49 +122,118 @@ class Irc():
       parsed += len(l)+1
       try:
         command, arg = l.split(" ", 1)
+        command = command.rstrip('\n')
+        arg = arg.rstrip()
         cmd = command.upper()
-        if cmd == 'JOIN':
-          self.stats.addchannel(conn, arg)
-        elif cmd == 'NICK':
+        if cmd == 'NICK':
           self.stats.addnick(conn, arg)
-          nick = arg
         # outgoing chatter
         elif cmd == 'PRIVMSG':
           chan, msg = arg.split(' :')
-          self.stats.addmsg(conn, chan, ">%s< %s" % (self.stats.getnick(conn), msg))
+          name = self.stats.servers[conn.remote].meta['Nick']
+          message = ">%s< %s" % (name, msg)
+          self.stats.addmsg(conn, chan, message)
+        elif cmd == 'QUIT':
+          conn.in_extra['close'] = True
         elif cmd in ['WHO', 'MODE', 'PING', 'WHOIS', 'PONG', 'PART', 'QUIT']:
           pass
-        # incoming chatter
-        elif arg.split()[0].upper() ==  'PRIVMSG':
-          if command[0] == ':':
-            sender = command[1:]
-          else:
-            sender = command
-          chan = arg[8:].split()[0]
-          msg = arg.split(':', 1)[1]
-          #if chan[0] in [ '&', '#', '!' ]:
-          self.stats.addmsg(conn, chan, "<%s> %s" % (sender, msg))
+      # other commands are ignored for now
       except Exception, e:
-        print e
-        print l
         pass
     return parsed 
+
+  def setup(self, conn):
+    if self.mode == 'HALF':
+      # could be in_extra, too, does not really matter
+      irc = irclib.IRC()
+      conn.out_extra = {}
+      conn.out_extra['irc'] = irc
+      conn.out_extra['irc_server'] = irc.server()
+      conn.in_extra = {}
+      conn.in_extra['buffer'] = ""
+      # close this connection
+      conn.in_extra['close'] = False
+    elif self.mode == 'FULL':
+      irc = irclib.IRC()
+      conn.out_extra = {}
+      conn.out_extra['irc'] = irc
+      conn.out_extra['irc_server'] = irc.server()
+      conn.in_extra = {}
+      conn.in_extra['buffer'] = ""
+      # close this connection
+      conn.in_extra['close'] = False
+      
 
   def handle(self, conn):
     if self.mode == 'TRANSPARENT':
       self.handle_transparent(conn)
-    if self.mode == 'HALF':
+    elif self.mode == 'HALF':
       self.handle_half(conn)
-    if self.mode == 'FULL':
+    elif self.mode == 'FULL':
       self.handle_full(conn)
 
   def handle_transparent(self, conn):
     self.stats.addserver2(conn.remote)
-    conn.outgoing = conn.outgoing[self.irc_methods(conn, 'out'):]
-    conn.incoming = conn.incoming[self.irc_methods(conn, 'in'):]
+    out = self.irc_out(conn) 
+    inc = self.irc_in(conn)
+    conn.outgoing = self.ltruncate(conn.outgoing, out)
+    conn.incoming = self.ltruncate(conn.incoming, inc)
 
   def handle_half(self, conn):
-    pass
+    self.stats.addserver2(conn.remote)
+    server = conn.out_extra['irc_server']
+    out = self.irc_out(conn)
 
+    if not server.connected:
+      server.connect(inet_ntoa(conn.remote[0]), conn.remote[1], self.stats.getnick(conn))
+    conn.outgoing.reset()
+    # take care that only full chunks (lines) of data are sent
+    sendit = conn.outgoing.read(out)
+    if sendit:
+      server.send_raw(sendit)
+      #print "sendt to server: %s" % sendit
+    conn.outgoing = self.ltruncate(conn.outgoing)
+    #print "left in out buffer: %s" % conn.outgoing.getvalue()
+
+    sock = server.socket     
+    # TODO take care that only full chunks are put in here, too
+    # TODO 2 parsen in irc_in (string vs. file handle!) f. statistik!
+    try:
+      sock.setblocking(0)
+      conn.in_extra['buffer'] += sock.recv(8192)
+      sock.setblocking(1)
+    # socket may not have any data to fetch
+    except Exception, e:
+      pass
+    #print "recv from server:--\n%s\n--" % conn.in_extra['buffer']
+    # TODO weiterer Puffer fuer unvollstaendige Zeilen
+    if conn.in_extra['buffer']:
+      conn.incoming.write(conn.in_extra['buffer'])
+      self.irc_in(conn)
+      conn.incoming.truncate(0)
+
+    if conn.in_extra['close']:
+      try:
+        server.close()
+      except:
+        pass
+ 
   def handle_full(self, conn):
     pass
+
+  # truncate _cStringIO_ objects
+  def ltruncate(self, f, bytes=None):
+    """ truncate given cStringIO object from the left
+    if bytes is an integer, truncate bytes many byte from f,
+    otherwise truncates f.tell() many bytes from f """
+
+    if bytes != None:
+      from os import SEEK_SET
+      f.seek(bytes, SEEK_SET)
+
+    h = cStringIO.StringIO()
+    h.write(f.read())
+    f.close()
+    del f
+    return h
+
