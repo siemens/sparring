@@ -2,6 +2,7 @@ from stats import Stats
 import cStringIO, re, irclib
 from socket import inet_ntoa, inet_aton
 from pprint import pprint
+
 #from pudb import set_trace; set_trace()
 
 def init(mode):
@@ -143,26 +144,38 @@ class Irc():
     return parsed 
 
   def setup(self, conn):
-    if self.mode == 'HALF':
+    conn.in_extra = {}
+    if self.mode == 'TRANSPARENT':
+      pass
+    elif self.mode == 'HALF':
       # could be in_extra, too, does not really matter
       irc = irclib.IRC()
       conn.out_extra = {}
       conn.out_extra['irc'] = irc
       conn.out_extra['irc_server'] = irc.server()
-      conn.in_extra = {}
       conn.in_extra['buffer'] = ""
       # close this connection
       conn.in_extra['close'] = False
     elif self.mode == 'FULL':
-      irc = irclib.IRC()
       conn.out_extra = {}
-      conn.out_extra['irc'] = irc
-      conn.out_extra['irc_server'] = irc.server()
-      conn.in_extra = {}
       conn.in_extra['buffer'] = ""
       # close this connection
       conn.in_extra['close'] = False
-      
+
+      from twisted.test import proto_helpers
+      from twisted.words.service import InMemoryWordsRealm, IRCFactory, IRCUser
+      from twisted.words.protocols import irc
+      from twisted.cred import checkers, portal
+      r = InMemoryWordsRealm("example.com")
+      r.createGroupOnRequest = True
+      p = portal.Portal(r, [checkers.InMemoryUsernamePasswordDatabaseDontUse(john="pass")])
+      f = IRCFactory(r, p)
+      i = f.buildProtocol(None)
+      t = proto_helpers.StringTransport()
+      i.makeConnection(t)
+      conn.in_extra['irc_server'] = t
+      conn.out_extra['irc_server'] = i
+
 
   def handle(self, conn):
     if self.mode == 'TRANSPARENT':
@@ -219,7 +232,30 @@ class Irc():
         pass
  
   def handle_full(self, conn):
-    pass
+    self.stats.addserver2(conn.remote)
+    i = conn.out_extra['irc_server']
+    # TODO assure that only fully sent lines are parsed
+    out = self.irc_out(conn)
+    conn.outgoing.reset()
+    sendit = conn.outgoing.read()
+    if sendit:
+      i.dataReceived(sendit)
+    conn.outgoing = self.ltruncate(conn.outgoing)
+    
+    t = conn.in_extra['irc_server']
+    conn.in_extra['buffer'] += t.value()
+    t.clear()
+
+    if conn.in_extra['buffer']:
+      conn.incoming.write(conn.in_extra['buffer'])
+      self.irc_in(conn)
+      conn.incoming.truncate(0)
+
+    if conn.in_extra['close']:
+      try:
+        i.connectionLost('asdf')
+      except:
+        pass
 
   # truncate _cStringIO_ objects
   def ltruncate(self, f, bytes=None):
