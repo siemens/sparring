@@ -165,13 +165,14 @@ class Http():
     return (http, size)
 
   def setup(self, conn):
-    if self.mode == 'HALF':
-      conn.in_extra = {}
+    conn.in_extra = {}
+    if self.mode == 'TRANSPARENT':
+      pass
+    elif self.mode == 'HALF':
       conn.in_extra['buffer'] = ""
       # close this connection
       conn.in_extra['close'] = False
     elif self.mode == 'FULL':
-      conn.in_extra = {}
       conn.in_extra['buffer'] = ""
       # close this connection
       conn.in_extra['close'] = False
