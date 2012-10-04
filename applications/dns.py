@@ -31,7 +31,7 @@ class Dns():
 
     # will throw exception if data is not assigned to another variable *SIGH*
     if conn.outgoing:
-      dns = conn.outgoing
+      dns = conn.outgoing.getvalue()
       try:
         question = dnslib.DNSRecord.parse(dns)
         ret = True
@@ -39,7 +39,7 @@ class Dns():
         pass
 
     if conn.incoming and not ret:
-      dns = conn.incoming
+      dns = conn.incoming.getvalue()
       try:
         answer = dnslib.DNSRecord.parse(conn.incoming)
         ret = True
@@ -62,18 +62,20 @@ class Dns():
   def handle_transparent(self, conn):
     while conn.outgoing:
       try:
-        dns = conn.outgoing
+        dns = conn.outgoing.getvalue()
+        conn.outgoing.truncate(0)
         question = dnslib.DNSRecord.parse(dns)
         self.stats.addquery(conn.remote, question.get_q())
         conn.outgoing = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
         ret = True
       except Exception, e:
-        print e
+        print 'xx',e
         pass
 
     while conn.incoming:
       try:
-        dns = conn.incoming
+        dns = conn.incoming.getvalue()
+        conn.incoming.truncate(0)
         answer = dnslib.DNSRecord.parse(dns)
         rlist = []
         for x in answer.rr:
@@ -82,7 +84,7 @@ class Dns():
         conn.incoming = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
         ret = True
       except Exception, e:
-        print e
+        print 'yy',e
         pass
         break
 
@@ -90,9 +92,17 @@ class Dns():
         break
 
   def handle_half(self, conn):
+    # general outline:
+    # receive request
+    # spawn new request, send
+    # receive answer
+    # pass result
     pass
 
   def handle_full(self, conn):
+    # receive request
+    # spawn new artifical result
+    # pass result
     self.handle_transparent(conn)
     pass
 
