@@ -171,6 +171,8 @@ if __name__ == '__main__':
 
   sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'lib'))
   sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'transports'))
+  # helper classes for applications/*.py
+  sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)),'utils'))
   import tcp, udp
   tcp = tcp.Tcp(mode, applications, own_ip)
   udp = udp.Udp(mode, applications, own_ip)
