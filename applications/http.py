@@ -4,6 +4,7 @@ import webob, cStringIO, re
 from socket import inet_ntoa, inet_aton
 from pprint import pprint
 from os import SEEK_CUR, SEEK_END, SEEK_SET
+from misc import ltruncate
 #from pudb import set_trace; set_trace()
 
 def init(mode):
@@ -197,7 +198,7 @@ class Http():
         request, size = self.create_request(out)
         # TODO FIXME REMOVE
         size = len(out)
-        conn.outgoing = self.ltruncate(conn.outgoing, size)
+        conn.outgoing = ltruncate(conn.outgoing, size)
         # exact size of request is not 100% reliably detected
         # TODO FIXME tailor to cStringIO object / fix size calculation
         #conn.outgoing = conn.outgoing.lstrip('\n\r')
@@ -225,7 +226,7 @@ class Http():
         response, size = self.create_response(inc)
         # TODO FIXME REMOVE
         size = len(inc)
-        conn.incoming = self.ltruncate(conn.incoming, size)
+        conn.incoming = ltruncate(conn.incoming, size)
         #conn.incoming = conn.incoming.lstrip('\n\r')
         self.log_response(response, conn)
         inc = inc[size:]
@@ -314,20 +315,4 @@ class Http():
 
   def httpuri(self, uri):
     return uri.startswith('http://') or uri.startswith('https://')
-
-  # truncate _cStringIO_ objects
-  def ltruncate(self, f, bytes=None):
-    """ truncate given cStringIO object from the left
-    if bytes is an integer, truncate bytes many byte from f,
-    otherwise truncates f.tell() many bytes from f """
-
-    if bytes != None:
-      from os import SEEK_SET
-      f.seek(bytes, SEEK_SET)
-
-    h = cStringIO.StringIO()
-    h.write(f.read())
-    f.close()
-    del f
-    return h
 

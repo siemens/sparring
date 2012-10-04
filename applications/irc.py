@@ -1,7 +1,7 @@
 from stats import Stats
 import cStringIO, re, irclib, os, hashlib
 from socket import inet_ntoa, inet_aton
-from pprint import pprint
+from misc import ltruncate
 
 from ircd import ircd
 
@@ -184,8 +184,8 @@ class Irc():
     self.stats.addserver2(conn.remote)
     out = self.irc_out(conn) 
     inc = self.irc_in(conn)
-    conn.outgoing = self.ltruncate(conn.outgoing, out)
-    conn.incoming = self.ltruncate(conn.incoming, inc)
+    conn.outgoing = ltruncate(conn.outgoing, out)
+    conn.incoming = ltruncate(conn.incoming, inc)
 
   def handle_half(self, conn):
     self.stats.addserver2(conn.remote)
@@ -200,7 +200,7 @@ class Irc():
     if sendit:
       server.send_raw(sendit)
       #print "sendt to server: %s" % sendit
-    conn.outgoing = self.ltruncate(conn.outgoing)
+    conn.outgoing = truncate(conn.outgoing)
     #print "left in out buffer: %s" % conn.outgoing.getvalue()
 
     sock = server.socket     
@@ -235,7 +235,7 @@ class Irc():
     sendit = conn.outgoing.read()
     if sendit:
       i.dataReceived(sendit)
-    conn.outgoing = self.ltruncate(conn.outgoing)
+    conn.outgoing = ltruncate(conn.outgoing)
     
     t = conn.in_extra['irc_server']
     conn.in_extra['buffer'] += t.value()
@@ -252,18 +252,3 @@ class Irc():
       except:
         pass
 
-  # truncate _cStringIO_ objects
-  def ltruncate(self, f, bytes=None):
-    """ truncate given cStringIO object from the left
-    if bytes is an integer, truncate bytes many byte from f,
-    otherwise truncates f.tell() many bytes from f """
-
-    if bytes != None:
-      from os import SEEK_SET
-      f.seek(bytes, SEEK_SET)
-
-    h = cStringIO.StringIO()
-    h.write(f.read())
-    f.close()
-    del f
-    return h
