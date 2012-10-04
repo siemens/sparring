@@ -1,7 +1,9 @@
 from stats import Stats
-import cStringIO, re, irclib
+import cStringIO, re, irclib, os, hashlib
 from socket import inet_ntoa, inet_aton
 from pprint import pprint
+
+from ircd import ircd
 
 #from pudb import set_trace; set_trace()
 
@@ -74,6 +76,7 @@ class Irc():
     #for server, details in self.servers.items():
     #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
 
+  # parse data sent to the client
   def irc_in(self, conn):
     parsed = 0
     pos = conn.incoming.tell()
@@ -104,9 +107,11 @@ class Irc():
           pass
       # other commands are ignored for now
       except Exception, e:
+        print e
         pass
     return parsed 
 
+  # parse data sent by the client
   def irc_out(self, conn):
     parsed = 0
     pos = conn.outgoing.tell()
@@ -161,21 +166,11 @@ class Irc():
       conn.in_extra['buffer'] = ""
       # close this connection
       conn.in_extra['close'] = False
-
-      from twisted.test import proto_helpers
-      from twisted.words.service import InMemoryWordsRealm, IRCFactory, IRCUser
-      from twisted.words.protocols import irc
-      from twisted.cred import checkers, portal
-      r = InMemoryWordsRealm("example.com")
-      r.createGroupOnRequest = True
-      p = portal.Portal(r, [checkers.InMemoryUsernamePasswordDatabaseDontUse(john="pass")])
-      f = IRCFactory(r, p)
-      i = f.buildProtocol(None)
-      t = proto_helpers.StringTransport()
-      i.makeConnection(t)
-      conn.in_extra['irc_server'] = t
-      conn.out_extra['irc_server'] = i
-
+      irc = ircd(hashlib.md5(os.urandom(128)).hexdigest()[:16] + ".com")
+      # data coming from our server
+      conn.in_extra['irc_server'] = irc.server
+      # data coming from the client
+      conn.out_extra['irc_server'] = irc.client
 
   def handle(self, conn):
     if self.mode == 'TRANSPARENT':
@@ -272,4 +267,3 @@ class Irc():
     f.close()
     del f
     return h
-
