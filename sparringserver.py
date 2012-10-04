@@ -100,6 +100,7 @@ class Sparringserver(asyncore.dispatcher):
       except Exception, e:
         print "handle_accept() ",
         print e
+
   def handle_error(self):
     print "ERROR aussen (Sparringserver)"
     raise
@@ -107,4 +108,4 @@ class Sparringserver(asyncore.dispatcher):
 if __name__ == 'main':
   import tcp # TODO will break :-)
   server = Sparringserver('localhost', 5000, tcp)
-  asyncore.loop()
+  asyncore.loop(timeout=1, use_poll=True)
