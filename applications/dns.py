@@ -60,40 +60,45 @@ class Dns():
       return self.handle_full(conn)
 
   def handle_transparent(self, conn):
-    while conn.outgoing:
+    question = None
+    answer = None
+
+    dns = conn.outgoing.getvalue() 
+    while dns:
       try:
-        dns = conn.outgoing.getvalue()
         conn.outgoing.truncate(0)
         question = dnslib.DNSRecord.parse(dns)
         self.stats.addquery(conn.remote, question.get_q())
-        conn.outgoing = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
-        ret = True
+        dns = ''
       except Exception, e:
         print 'xx',e
-        pass
+        break
 
-    while conn.incoming:
+    dns = conn.incoming.getvalue()
+    while dns:
       try:
-        dns = conn.incoming.getvalue()
         conn.incoming.truncate(0)
         answer = dnslib.DNSRecord.parse(dns)
         rlist = []
         for x in answer.rr:
           rlist.append(QTYPE.lookup(x.rtype) + " " + str(x.rname) + " " + str(x.rdata))
         self.stats.addresponse(conn.remote, rlist)
-        conn.incoming = '' # TODO nicht zuviel abschneiden ~> nur Groesse der Antwort/Frage
-        ret = True
+        dns = ''
       except Exception, e:
         print 'yy',e
-        pass
         break
 
-    while conn.incoming:
-        break
+    return (question, answer)    
 
   def handle_half(self, conn):
     # general outline:
     # receive request
+    question, answer = self.handle_transparent(conn)
+    assert(not answer)
+    if question:
+      print question.send(conn.remote[0])
+
+    conn.in_extra['close'] = True
     # spawn new request, send
     # receive answer
     # pass result

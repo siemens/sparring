@@ -78,15 +78,6 @@ class Tcp(Transport):
           self.connections[dst].handle()
   
       return (0, nfqueue.NF_STOP)
-
-  def handle_half(self, data):
-      # TODO check needed that no unsolicited SYN package
-      # from outside pollutes the tcp dictionary?
-
-      if not self.classify(self.connection):
-        return
-      self.connection.handle()
-
      
 class Tcpconnection(Connection):
   def __init__(self, module, (dst, dport), (src, sport)):

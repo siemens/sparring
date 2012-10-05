@@ -2,7 +2,6 @@ from stats import Stats
 import urlparse
 import webob, cStringIO, re
 from socket import inet_ntoa, inet_aton
-from pprint import pprint
 from os import SEEK_CUR, SEEK_END, SEEK_SET
 from misc import ltruncate
 #from pudb import set_trace; set_trace()
@@ -50,15 +49,19 @@ class Http():
     return ['http']
 
   def classify(self, conn):
-    conn.outgoing.reset()
-    out = conn.outgoing.readline()
-    conn.outgoing.seek(0, SEEK_END)
-    conn.incoming.reset()
-    inc = conn.incoming.readline()
-    conn.incoming.seek(0, SEEK_END)
-    if inc.startswith('HTTP/') or out[-10:][:5] == 'HTTP/':
-      self.setup(conn)
-      return True
+    try:
+      conn.outgoing.reset()
+      out = conn.outgoing.readline()
+      conn.outgoing.seek(0, SEEK_END)
+      conn.incoming.reset()
+      inc = conn.incoming.readline()
+      conn.incoming.seek(0, SEEK_END)
+      if inc.startswith('HTTP/') or out[-10:][:5] == 'HTTP/':
+        self.setup(conn)
+        return True
+    except Exception,e:
+      #print e
+      return False
 
   def get_stats(self):
     print self.stats

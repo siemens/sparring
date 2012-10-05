@@ -29,13 +29,10 @@ def cb(payload):
     try:
       pkt = ip.IP(data)
     except:
-      print "unsupported Layer 3 protocol (not IP) dropped"
+      print "unsupported Layer 3 protocol or broken IP packet dropped"
       payload.set_verdict(nfqueue.NF_DROP)
       return
 
-    # TODO XXX  return-Wert nur das VERDICT, wir wollen aber auch, falls {{{
-    # noetig, set_verdict_modified() aufrufen koennen. Meer returnen oder
-    # payload uebergeben und die Funktion selber VERDICT setzen lassen? }}}
     if pkt.p == dpkt.ip.IP_PROTO_TCP:
       ret = tcp.handle(pkt)
       payload.set_verdict(ret[1])
@@ -126,7 +123,7 @@ def create_listener():
   from sparringserver import Sparringserver 
   import asyncore
   server = Sparringserver('localhost', 5000, tcp)
-  #server = Sparringserver('localhost', 5001, udp)
+  server = Sparringserver('localhost', 5001, udp)
   try:
     asyncore.loop()
   except KeyboardInterrupt, e:
