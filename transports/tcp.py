@@ -86,6 +86,13 @@ class Tcpconnection(Connection):
     self.inqueue = PriorityQueue()
     self.outseq = 0 # last ACKed sequence number
     self.outseq_max = 0 # for detection of out of order packets
+    
+    # minimum sequence number that is allowed to get appended
+    # i.e. packets that got inserted, ack'd AND retransmitted must not
+    # be appended to the {incoming,outgoing} buffer again
+    self.outseq_min = 0 
+    self.inseq_min = 0
+
     self.inseq = 0 # last ACKed sequence number
     self.inseq_max = 0 # for detection of out of order packets
     self.state = 0
@@ -97,14 +104,22 @@ class Tcpconnection(Connection):
     #while len(self.inbuf) > 0 and min(self.inbuf)[0] <= self.inseq:
     try:
       while self.inqueue.queue[0][0] <= self.inseq:
-        self.incoming.write(self.inqueue.get()[1])
+        seq, data = self.inqueue.get()
+        if seq > self.inseq_min:
+          #print data
+          self.inseq_min = seq
+          self.incoming.write(data)
     except:
       pass
 
   def assemble_out(self):
     try:
       while self.outqueue.queue[0][0] <= self.outseq:
-        self.outgoing.write(self.outqueue.get()[1])
+        seq, data = self.outqueue.get()
+        if seq > self.outseq_min:
+          #print data
+          self.outseq_min = seq
+          self.outgoing.write(data)
     except:
       pass
 

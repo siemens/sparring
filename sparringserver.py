@@ -1,5 +1,6 @@
 import asyncore, asynchat
 import socket
+from time import sleep
 #from pudb import set_trace; set_trace()
 
 #class Tcphandler(asynchat.async_chat):
@@ -52,8 +53,16 @@ class Tcphandler(asyncore.dispatcher):
       self.handle_close()
 
   def handle_close(self):
+    """ seems get called multiple times for the same connection, so pay
+    attention wether self.conn still is set or not """
+    # TODO klappt so nicht. Wieso denn nicht?
+    if not self.conn:
+      self.close()
+      return
+
     if self.conn.incoming.getvalue() or self.conn.outgoing.getvalue():
       print " 3: not all data handled!"
+
     del self.conn # TODO aus oberer instanz loeschen?
     self.close()
 
@@ -108,4 +117,6 @@ class Sparringserver(asyncore.dispatcher):
 if __name__ == 'main':
   import tcp # TODO will break :-)
   server = Sparringserver('localhost', 5000, tcp)
-  asyncore.loop(timeout=1, use_poll=True)
+  while True:
+    asyncore.loop(timeout=1, use_poll=True, count=1)
+    sleep(.0001)

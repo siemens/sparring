@@ -1,10 +1,9 @@
 from stats import Stats
 import cStringIO, re, irclib, os, hashlib
 from socket import inet_ntoa, inet_aton
+from application import Application
 from misc import ltruncate
-
-from ircd import ircd
-
+from ircd import ircd 
 #from pudb import set_trace; set_trace()
 
 def init(mode):
@@ -44,12 +43,12 @@ class Ircstats(Stats):
     chan = self.addchannel(conn, channel)
     chan += [ msg ]
 
-class Irc():
-  stats = Ircstats()
+class Irc(Application):
 
   def __init__(self, mode):
     # one of TRANSPARENT, FULL, HALF
-    self.mode = mode
+    Application.__init__(self, mode)
+    self.stats = Ircstats()
 
   def protocols(self):
     return ['irc']

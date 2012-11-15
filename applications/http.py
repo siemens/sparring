@@ -4,6 +4,7 @@ import webob, cStringIO, re
 from socket import inet_ntoa, inet_aton
 from os import SEEK_CUR, SEEK_END, SEEK_SET
 from misc import ltruncate
+from application import Application
 #from pudb import set_trace; set_trace()
 
 def init(mode):
@@ -38,12 +39,12 @@ class Httpstats(Stats):
       # TODO noch nicht ganz
       self.cats['Server'][server].append((req[0], status))
 
-class Http():
-  stats = Httpstats()
+class Http(Application):
 
   def __init__(self, mode):
     # one of TRANSPARENT, FULL, HALF
-    self.mode = mode
+    Application.__init__(self, mode)
+    self.stats = Httpstats()
 
   def protocols(self):
     return ['http']
@@ -181,13 +182,13 @@ class Http():
       # close this connection
       conn.in_extra['close'] = False
 
-  def handle(self, conn):
-    if self.mode == 'TRANSPARENT':
-      self.handle_transparent(conn)
-    if self.mode == 'HALF':
-      self.handle_half(conn)
-    if self.mode == 'FULL':
-      self.handle_full(conn)
+#  def handle(self, conn):
+#    if self.mode == 'TRANSPARENT':
+#      self.handle_transparent(conn)
+#    if self.mode == 'HALF':
+#      self.handle_half(conn)
+#    if self.mode == 'FULL':
+#      self.handle_full(conn)
 
   def handle_transparent(self, conn):
     request = None
@@ -195,26 +196,20 @@ class Http():
 
     # TODO gets called even if there is no new outgoing data but new incoming
     # data. this *is* a performance issue -> tcp.py!
-    out = conn.outgoing.getvalue()
-    while out:
-      try:
-        request, size = self.create_request(out)
-        # TODO FIXME REMOVE
-        size = len(out)
-        conn.outgoing = ltruncate(conn.outgoing, size)
-        # exact size of request is not 100% reliably detected
-        # TODO FIXME tailor to cStringIO object / fix size calculation
-        #conn.outgoing = conn.outgoing.lstrip('\n\r')
-        self.log_request(request, conn)
-        # TODO REENABLE
-        # vs out = conn.outgoing.getvalue()
-        out = out[size:]
-        #print "%d byte left in out to parse" % len(out)
-      except Exception,e: 
-        #print e
-        #print "--------------------------"
-        #pprint(conn.outgoing.getvalue())
-        break
+    #while out:
+    pos = conn.outgoing.tell()
+    conn.outgoing.seek(0)
+    try:
+      request = webob.Request.from_file(conn.outgoing)
+      conn.outgoing = ltruncate(conn.outgoing)
+      self.log_request(request, conn)
+    except Exception,e: 
+      pass
+      #print e
+      #print "--------------------------"
+      #pprint(conn.outgoing.getvalue())
+      #break
+    conn.outgoing.seek(0, SEEK_END)
 
     if self.more_incoming_needed(conn):
       return (request, response)
@@ -261,7 +256,8 @@ class Http():
   def handle_full(self, conn):
     request, response = self.handle_transparent(conn)
     if request:
-      conn.in_extra['buffer'] = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 14\r\n\r\n<h1>hola!</h1>'
+      response_body = '<h1>hola!</h1>'
+      conn.in_extra['buffer'] = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ' + str(len(response_body)) + '\r\n\r\n' + response_body
       conn.in_extra['close'] = True
 
   def decode_body(self, http):

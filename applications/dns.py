@@ -1,6 +1,7 @@
 import dnslib
 from dnslib import QTYPE
 from stats import Stats
+from application import Application
 
 def init(mode):
   return Dns(mode)
@@ -14,12 +15,12 @@ class Dnsstats(Stats):
     self.addserver(server)
     self.cats['Server'][server] += [ 'A: ', a ] 
 
-class Dns():
+class Dns(Application):
   servers = {}
 
   def __init__(self, mode):
     # one of TRANSPARENT, FULL, HALF
-    self.mode = mode
+    Application.__init__(self, mode)
     self.stats = Dnsstats()
     #print '%s initialisiert [%s]' % (__name__,self.mode)
 

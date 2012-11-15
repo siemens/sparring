@@ -25,8 +25,11 @@ CONFIG_NETFILTER_XT_MATCH_SOCKET Socket match support
 CONFIG_NETFILTER_XT_TARGET_MARK  mark target support
 ebtables (BROUTING, redirect)
 
+iptables and ebtables userland programs
 
 python-2.7
 python-nfqueue (runtime: libnetfilter-queue, build-time: libnetfilter-queue, swig, cmake)
-dpkt
-webob
+dpkt (ip)
+webob (http module)
+twisted (irc module)
+dnslib (dns module)

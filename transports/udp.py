@@ -44,5 +44,3 @@ class Udp(Transport):
     
     return (0, nfqueue.NF_STOP)
 
-  def handle_half(self, pkt):
-    return (0, nfqueue.NF_STOP)

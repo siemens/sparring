@@ -2,6 +2,7 @@
 import sys, os, nfqueue, dpkt
 from dpkt import ip
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname, socket
+from time import sleep
 import getopt
 import socket
 #from pudb import set_trace; set_trace()
@@ -33,6 +34,8 @@ def cb(payload):
       payload.set_verdict(nfqueue.NF_DROP)
       return
 
+    # TODO eigentlich besser: neue Model-Klasse, die die Unterscheidung
+    # vornimmt. Hier ist ja nur Controller-Teil.
     if pkt.p == dpkt.ip.IP_PROTO_TCP:
       ret = tcp.handle(pkt)
       payload.set_verdict(ret[1])
@@ -79,7 +82,8 @@ def load_applications(app_dir):
   for module in mod_list:
     try:
       module_name, module_ext = os.path.splitext(module)
-      if module_ext == '.py':
+      # better: check for existance and callable() of init() 
+      if module_ext == '.py' and not module_name == 'application':
         mod = __import__(module_name)
         applications.append(mod.init(mode))
         del mod
@@ -123,9 +127,12 @@ def create_listener():
   from sparringserver import Sparringserver 
   import asyncore
   server = Sparringserver('localhost', 5000, tcp)
-  server = Sparringserver('localhost', 5001, udp)
+  #server = Sparringserver('localhost', 5001, udp)
   try:
-    asyncore.loop()
+    #asyncore.loop()
+    while True:
+      asyncore.loop(timeout=1, use_poll=True, count=1)
+      sleep(.0009)
   except KeyboardInterrupt, e:
     pass
   
