@@ -12,28 +12,28 @@ def init(mode):
 
 class Httpstats(Stats):
 
-  def addserver(self, server, proxy = None):
+  def log_server(self, server, proxy = None):
     if server in self.cats['Server']:
       return
     self.cats['Server'][server] = [ proxy ]
 
-  def setproxy(self, server, proxy): 
-    self.addserver(server)
+  def log_proxy(self, server, proxy): 
+    self.log_server(server)
     self.cats['Server'][server][0] = proxy
 
-  def addget(self, server, uri):
-    self.addserver(server)
+  def log_get(self, server, uri):
+    self.log_server(server)
     self.cats['Server'][server] += [ ('GET ' + uri, None) ]
   
-  def addpost(self, server, uri, file=None, original=None):
-    self.addserver(server)
+  def log_post(self, server, uri, file=None, original=None):
+    self.log_server(server)
     if not 'Files' in self.cats:
       self.cats['Files'] = []
     if file:
       self.cats['Files'] += [file + ' original: ' + original ]
     self.cats['Server'][server] += [ ('POST ' + uri, None) ] 
 
-  def addresponse(self, server, status):
+  def log_response(self, server, status):
     if server in self.cats['Server']:
       req = self.cats['Server'][server].pop()
       # TODO noch nicht ganz
@@ -45,9 +45,7 @@ class Http(Application):
     # one of TRANSPARENT, FULL, HALF
     Application.__init__(self, mode)
     self.stats = Httpstats()
-
-  def protocols(self):
-    return ['http']
+    self.protos = ['http']
 
   def classify(self, conn):
     try:
@@ -64,11 +62,6 @@ class Http(Application):
       #print e
       return False
 
-  def get_stats(self):
-    print self.stats
-    #for server, details in self.servers.items():
-    #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
-
   def log_request(self, http, conn):
     # be careful to count the connection for http://server,
     # not the proxy server (conn.remote)!
@@ -81,10 +74,10 @@ class Http(Application):
     if http.method == 'CONNECT' or \
         (http.method == 'GET' and self.httpuri(http.path)):
       conn.proxy = server
-      self.stats.setproxy(self.uri2serverport(http.path), conn.proxy)
+      self.stats.log_proxy(self.uri2serverport(http.path), conn.proxy)
 
     if http.method == 'GET':
-      self.stats.addget(conn.remote, http.url)
+      self.stats.log_get(conn.remote, http.url)
 
     if http.method == 'POST':
       try:
@@ -99,9 +92,9 @@ class Http(Application):
               shutil.copyfileobj(v.file, w)
               w.close()
               filename = v.filename
-              self.stats.addpost(conn.remote, http.url + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
+              self.stats.log_post(conn.remote, http.url + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
           except Exception,e:
-            self.stats.addpost(conn.remote, http.url + " %s=%s" % (k, v))
+            self.stats.log_post(conn.remote, http.url + " %s=%s" % (k, v))
       except Exception,e:
         # stuff the query back into the send buffer
         conn.outgoing = qry + conn.outgoing
@@ -114,9 +107,9 @@ class Http(Application):
       pass
 
     if http.status_int == 301:
-      self.stats.addresponse(conn.remote, http.status + " " + http.headers['location'])
+      self.stats.log_response(conn.remote, http.status + " " + http.headers['location'])
     else:
-      self.stats.addresponse(conn.remote, http.status)
+      self.stats.log_response(conn.remote, http.status)
 
   def more_incoming_needed(self, conn):
     pos = conn.incoming.tell()

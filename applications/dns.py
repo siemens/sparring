@@ -8,11 +8,11 @@ def init(mode):
 
 class Dnsstats(Stats):
   dummy = None
-  def addquery(self, server, q):
-    self.addserver(server)
+  def log_query(self, server, q):
+    self.log_server(server)
     self.cats['Server'][server] += [ 'Q: ' + str(q) ] 
-  def addresponse(self, server, a):
-    self.addserver(server)
+  def log_response(self, server, a):
+    self.log_server(server)
     self.cats['Server'][server] += [ 'A: ', a ] 
 
 class Dns(Application):
@@ -22,6 +22,7 @@ class Dns(Application):
     # one of TRANSPARENT, FULL, HALF
     Application.__init__(self, mode)
     self.stats = Dnsstats()
+    self.protos = ['dns']
     #print '%s initialisiert [%s]' % (__name__,self.mode)
 
   def protocols(self):
@@ -49,9 +50,6 @@ class Dns(Application):
 
     return ret
 
-  def get_stats(self):
-    print self.stats
-
   def handle(self, conn):
     if self.mode == 'TRANSPARENT':
       return self.handle_transparent(conn)
@@ -69,7 +67,7 @@ class Dns(Application):
       try:
         conn.outgoing.truncate(0)
         question = dnslib.DNSRecord.parse(dns)
-        self.stats.addquery(conn.remote, question.get_q())
+        self.stats.log_query(conn.remote, question.get_q())
         dns = ''
       except Exception, e:
         print 'xx',e
@@ -83,7 +81,7 @@ class Dns(Application):
         rlist = []
         for x in answer.rr:
           rlist.append(QTYPE.lookup(x.rtype) + " " + str(x.rname) + " " + str(x.rdata))
-        self.stats.addresponse(conn.remote, rlist)
+        self.stats.log_response(conn.remote, rlist)
         dns = ''
       except Exception, e:
         print 'yy',e

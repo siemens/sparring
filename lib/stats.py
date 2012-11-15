@@ -7,12 +7,12 @@ class Stats():
     self.cats['Server'] = {}
     self.servers = {}
 
-  def addserver(self, server, proxy = None):
+  def log_server(self, server, proxy = None):
     if server in self.cats['Server']:
       return
     self.cats['Server'][server] = []
 
-  def addserver2(self, server, meta={}):
+  def log_server2(self, server, meta={}):
     if not server in self.servers:
       self.servers[server] = Server(server, meta)
 

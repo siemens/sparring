@@ -25,12 +25,12 @@ class Ircstats(Stats):
     else:
       return ret
 
-  def addchannel(self, conn, channel):
+  def log_channel(self, conn, channel):
     if not channel in self.servers[conn.remote].channel:
       self.servers[conn.remote].channel[channel] = []
     return self.servers[conn.remote].channel[channel]
 
-  def addnick(self, conn, nick):
+  def log_nick(self, conn, nick):
     self.servers[conn.remote].meta['Nick'] = nick
 
   def getnick(self, conn):
@@ -39,8 +39,8 @@ class Ircstats(Stats):
     else:
       return None
 
-  def addmsg(self, conn, channel, msg):
-    chan = self.addchannel(conn, channel)
+  def log_msg(self, conn, channel, msg):
+    chan = self.log_channel(conn, channel)
     chan += [ msg ]
 
 class Irc(Application):
@@ -49,9 +49,7 @@ class Irc(Application):
     # one of TRANSPARENT, FULL, HALF
     Application.__init__(self, mode)
     self.stats = Ircstats()
-
-  def protocols(self):
-    return ['irc']
+    self.protos = ['irc']
 
   def classify(self, conn):
     nick = False
@@ -69,11 +67,6 @@ class Irc(Application):
     if nick and user:
       self.setup(conn)
       return True
-
-  def get_stats(self):
-    print self.stats
-    #for server, details in self.servers.items():
-    #  print "%15.15s:%-4d    via PROXY: %r" % (inet_ntoa(server[0]), server[1], details)
 
   # parse data sent to the client
   def irc_in(self, conn):
@@ -98,10 +91,10 @@ class Irc(Application):
         cmd = cmd.upper()
         # incoming chatter
         if cmd == 'JOIN':
-          self.stats.addchannel(conn, msg)
+          self.stats.log_channel(conn, msg)
         elif cmd == 'PRIVMSG':
           chan, msg = msg.split(' :', 1)
-          self.stats.addmsg(conn, chan, "<%s> %s" % (sender, msg))
+          self.stats.log_msg(conn, chan, "<%s> %s" % (sender, msg))
         elif cmd in ['WHO', 'MODE', 'PING', 'WHOIS', 'PONG', 'PART', 'QUIT']:
           pass
       # other commands are ignored for now
@@ -131,13 +124,13 @@ class Irc(Application):
         arg = arg.rstrip()
         cmd = command.upper()
         if cmd == 'NICK':
-          self.stats.addnick(conn, arg)
+          self.stats.log_nick(conn, arg)
         # outgoing chatter
         elif cmd == 'PRIVMSG':
           chan, msg = arg.split(' :')
           name = self.stats.servers[conn.remote].meta['Nick']
           message = ">%s< %s" % (name, msg)
-          self.stats.addmsg(conn, chan, message)
+          self.stats.log_msg(conn, chan, message)
         elif cmd == 'QUIT':
           conn.in_extra['close'] = True
         elif cmd in ['WHO', 'MODE', 'PING', 'WHOIS', 'PONG', 'PART', 'QUIT']:
@@ -180,14 +173,14 @@ class Irc(Application):
       self.handle_full(conn)
 
   def handle_transparent(self, conn):
-    self.stats.addserver2(conn.remote)
+    self.stats.log_server2(conn.remote)
     out = self.irc_out(conn) 
     inc = self.irc_in(conn)
     conn.outgoing = ltruncate(conn.outgoing, out)
     conn.incoming = ltruncate(conn.incoming, inc)
 
   def handle_half(self, conn):
-    self.stats.addserver2(conn.remote)
+    self.stats.log_server2(conn.remote)
     server = conn.out_extra['irc_server']
     out = self.irc_out(conn)
 
@@ -226,7 +219,7 @@ class Irc(Application):
         pass
  
   def handle_full(self, conn):
-    self.stats.addserver2(conn.remote)
+    self.stats.log_server2(conn.remote)
     i = conn.out_extra['irc_server']
     # TODO assure that only fully sent lines are parsed
     out = self.irc_out(conn)
