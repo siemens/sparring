@@ -1,5 +1,4 @@
-import dnslib
-from dnslib import QTYPE
+from dnslib import *
 from stats import Stats
 from application import Application
 
@@ -25,8 +24,8 @@ class Dns(Application):
     self.protos = ['dns']
     #print '%s initialisiert [%s]' % (__name__,self.mode)
 
-  def protocols(self):
-    return ['dns']
+  def setup(self, conn):
+    conn.in_extra = {}
 
   def classify(self, conn):
     ret = False
@@ -35,7 +34,7 @@ class Dns(Application):
     if conn.outgoing:
       dns = conn.outgoing.getvalue()
       try:
-        question = dnslib.DNSRecord.parse(dns)
+        question = DNSRecord.parse(dns)
         ret = True
       except:
         pass
@@ -43,11 +42,13 @@ class Dns(Application):
     if conn.incoming and not ret:
       dns = conn.incoming.getvalue()
       try:
-        answer = dnslib.DNSRecord.parse(conn.incoming)
+        answer = DNSRecord.parse(conn.incoming)
         ret = True
       except:
         pass
 
+    if ret:
+      self.setup(conn)
     return ret
 
   def handle(self, conn):
@@ -65,23 +66,25 @@ class Dns(Application):
     dns = conn.outgoing.getvalue() 
     while dns:
       try:
-        conn.outgoing.truncate(0)
-        question = dnslib.DNSRecord.parse(dns)
+        #conn.outgoing.truncate(0)
+        question = DNSRecord.parse(dns)
         self.stats.log_query(conn.remote, question.get_q())
+        conn.outgoing.truncate(0)
         dns = ''
       except Exception, e:
-        print 'xx',e
+        print 'xx',str(e)
         break
 
     dns = conn.incoming.getvalue()
     while dns:
       try:
-        conn.incoming.truncate(0)
-        answer = dnslib.DNSRecord.parse(dns)
+        #conn.incoming.truncate(0)
+        answer = DNSRecord.parse(dns)
         rlist = []
         for x in answer.rr:
           rlist.append(QTYPE.lookup(x.rtype) + " " + str(x.rname) + " " + str(x.rdata))
         self.stats.log_response(conn.remote, rlist)
+        conn.incoming.truncate(0)
         dns = ''
       except Exception, e:
         print 'yy',e
@@ -107,6 +110,9 @@ class Dns(Application):
     # receive request
     # spawn new artifical result
     # pass result
-    self.handle_transparent(conn)
+    question, answer = self.handle_transparent(conn)
+    if question:
+      a = question.reply(data="1.2.3.4")
+      conn.in_extra['buffer'] = a.pack()
     pass
 
