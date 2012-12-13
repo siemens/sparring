@@ -164,7 +164,7 @@ def create_listener():
   from sparringserver import Sparringserver 
   import asyncore
   server1 = Sparringserver(own_ip, 5000, tcp)
-  server2 = Sparringserver(own_ip, 5000, udp)
+  #server2 = Sparringserver(own_ip, 5000, udp)
   try:
     while True:
       asyncore.loop(timeout=1, use_poll=True, count=1)

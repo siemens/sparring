@@ -12,20 +12,20 @@ class Tcphandler(asyncore.dispatcher):
       self.conn = conn
 
   def handle_read(self):
-      data = self.recv(8192)
-      if data:
-        # echo halt...
-        #print "sending back %s" % data
-        #self.send(data)
+    data = self.recv(8192)
+    if data:
+      # echo halt...
+      #print "sending back %s" % data
+      #self.send(data)
 
-        # we don't use conn.put_in() because there's no need for TCP 
-        # connections to reassemble the data as our underlying socket did that
-        # already for us. So just fill the outgoing buffer
-        self.conn.outgoing.write(data)
-        if self.conn.classify():
-          self.conn.handle()
-        if self.writable():
-          self.handle_write()
+      # we don't use conn.put_in() because there's no need for TCP 
+      # connections to reassemble the data as our underlying socket did that
+      # already for us. So just fill the outgoing buffer
+      self.conn.outgoing.write(data)
+      if self.conn.classify():
+        self.conn.handle()
+      if self.writable():
+        self.handle_write()
   
   def writable(self):
     self.conn.handle()
@@ -55,10 +55,8 @@ class Tcphandler(asyncore.dispatcher):
   def handle_close(self):
     """ seems get called multiple times for the same connection, so pay
     attention wether self.conn still is set or not """
-    # TODO klappt so nicht. Wieso denn nicht?
-    if not self.conn:
-      self.close()
-      return
+    self.close()
+    return
 
     if self.conn.incoming.getvalue() or self.conn.outgoing.getvalue():
       print " 3: not all data handled!"
