@@ -8,6 +8,7 @@ class Udp(Transport):
   def __init__(self, mode, applications, own_ip):
     Transport.__init__(self, mode, applications, own_ip)
     self.connection = Connection
+    self.name = 'UDP'
 
   def handle_transparent(self, pkt):
     datagram = pkt.data

@@ -10,6 +10,7 @@ class Tcp(Transport):
     Transport.__init__(self, mode, applications, own_ip)
     # Template class used for new connections
     self.connection = Tcpconnection
+    self.name = 'TCP'
 
   def handle_transparent(self, pkt):
       # TODO check needed that no unsolicited SYN package

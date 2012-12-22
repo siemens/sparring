@@ -12,6 +12,14 @@ class IRCUser(service.IRCUser):
     self.realm = self.factory.realm
     self.hostname = self.realm.name
 
+  def irc_PASS(self, prefix, params):
+    # we dont care if PASS was sent
+    self.password = ""
+
+  def irc_PONG(self, prefix, params):
+    # we dont care
+    pass
+
   def irc_NICK(self, prefix, params):
     """Nick message -- Set your nickname.
 

@@ -18,6 +18,8 @@ class Ircstats(Stats):
     ret = ''
     for server, irc in self.servers.items():
       ret += "\n%s %d\n" % (inet_ntoa(server[0]), server[1])
+      for k,v in irc.meta.items():
+        ret += "\n  %s: %s\n" % (k,v)
       for channel, log in irc.channel.items():
         ret += "\n  %s\n" % str(channel)
         for msg in log:
@@ -86,7 +88,7 @@ class Irc(Application):
       try:
         sender, arg = l.split(" ", 1)
         sender = sender[1:]
-        arg = arg.rstrip()
+        arg = arg.strip()
         cmd, msg = arg.split(" ", 1)
         cmd = cmd.upper()
         # incoming chatter
@@ -119,10 +121,10 @@ class Irc(Application):
     for l in lines:
       parsed += len(l)+1
       try:
-        command, arg = l.split(" ", 1)
-        command = command.rstrip('\n')
+        cmd, arg = l.split(" ", 1)
+        cmd = cmd.rstrip('\n')
         arg = arg.rstrip()
-        cmd = command.upper()
+        cmd = cmd.upper()
         if cmd == 'NICK':
           self.stats.log_nick(conn, arg)
         # outgoing chatter

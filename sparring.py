@@ -124,18 +124,23 @@ def identify_generic():
     print "import of generic module failed"
     return
 
-  print "davor:"
-  for connection in tcp.connections.values() + udp.connections.values():
-    print "%s %s" % (inet_ntoa(connection.remote[0]), connection.module)
+  #print "davor:"
+  #for connection in tcp.connections.values() + udp.connections.values():
+  #  try:
+  #    print "(%s,%d)->(%s,%d) %s" % (inet_ntoa(connection.remote[0]),
+  #        connection.remote[1], inet_ntoa(connection.local[0]),
+  #        connection.local[1], connection.module.stats)
+  #  except:
+  #    print "one with NoneType"
 
   for connection in tcp.connections.values() + udp.connections.values():
     if not connection.module:
       connection.module = mod_instance
       connection.handle()
 
-  print "danach:"
-  for connection in tcp.connections.values() + udp.connections.values():
-    print "%s %s" % (inet_ntoa(connection.remote[0]), connection.module)
+  #print "danach:"
+  #for connection in tcp.connections.values() + udp.connections.values():
+  #  print "%s %s" % (inet_ntoa(connection.remote[0]), connection.module)
 
 def load_applications(app_dir):
   sys.path.append(app_dir)
@@ -209,7 +214,7 @@ if __name__ == '__main__':
   # TODO funktioniert nicht immer
   # eigentlich eine Liste (inkl. Broadcastadresse)
   #own_ip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
-  own_ip = inet_aton('192.168.1.130') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  own_ip = inet_aton('192.168.1.134') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   print "using %s as own IP address" % inet_ntoa(own_ip)
 
   cwd = os.path.dirname(os.path.realpath(__file__))
