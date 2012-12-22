@@ -80,21 +80,30 @@ class Http(Application):
       self.stats.log_get(conn.remote, http.url)
 
     if http.method == 'POST':
+      print "found POST"
       try:
+        import shutil, tempfile
         filename = None
         for k, v in http.POST.items():
-          #print k
           try:
             if v.filename:
-              import shutil, tempfile
               w = tempfile.NamedTemporaryFile(dir='/tmp', delete = False)
-              #w = open('/tmp/xxx', 'wb')
               shutil.copyfileobj(v.file, w)
               w.close()
               filename = v.filename
               self.stats.log_post(conn.remote, http.url + " %s=%s %s" % (k, v.filename, w.name), w.name, filename)
           except Exception,e:
             self.stats.log_post(conn.remote, http.url + " %s=%s" % (k, v))
+        else:
+          if http.content_length > 0:
+            w = tempfile.NamedTemporaryFile(dir='/tmp', delete = False)
+            shutil.copyfileobj(http.body_file, w)
+            w.close()
+            filename = w.name
+            self.stats.log_post(conn.remote, http.url + " POST Body: %s" % (filename))
+          else:
+            self.stats.log_post(conn.remote, http.url + " empty POST Body")
+            
       except Exception,e:
         # stuff the query back into the send buffer
         conn.outgoing = qry + conn.outgoing
