@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import sys, os, nfqueue, dpkt
-from dpkt import ip
+#from dpkt import ip
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname, socket
 from time import sleep
 import getopt
@@ -11,9 +11,7 @@ import socket
 
 count = 0
 nodata_count = 0
-queueno = 0
 applications = []
-modes = ['TRANSPARENT', 'HALF', 'FULL']
 
 tcp = None
 udp = None
@@ -83,19 +81,20 @@ def load_applications(app_dir):
       module_name, module_ext = os.path.splitext(module)
       # better? check for existance and callable() of init() 
       if module_ext == '.py' and not module_name in blacklist:
+        print module_name
         mod = __import__(module_name)
         applications.append(mod.init(mode))
         del mod
     except ImportError, e:
       print "import of module %s failed: %s" % (module, e)
 
-def nfq_setup():
+def nfq_setup(queueno):
   q = nfqueue.queue()
   q.set_callback(cb)
   try:
     q.fast_open(queueno, AF_INET)
   except RuntimeError, e:
-    print "cannot bind to nf_queue %d. Already in use?" % queueno
+    print "cannot bind to nf_queue %d: #%s Already in use?" % (queueno, e)
   q.set_queue_maxlen(5000)
   
   try:
@@ -158,18 +157,18 @@ def load_applications(app_dir):
     except ImportError, e:
       print "import of module %s failed: %s" % (module, e)
 
-def setup(mode):
+def setup(mode, ip, port, queueno = 0):
   if mode == 'TRANSPARENT':
-    nfq_setup()
+    nfq_setup(queueno)
   else:
-    create_listener()
+    create_listener(ip, port)
   shutdown()
 
-def create_listener():
+def create_listener(ip, port):
   from sparringserver import Sparringserver 
   import asyncore
-  server1 = Sparringserver(own_ip, 5000, tcp)
-  #server2 = Sparringserver(own_ip, 5000, udp)
+  server1 = Sparringserver(ip, port, tcp)
+  #server2 = Sparringserver(ip, port, udp)
   try:
     while True:
       asyncore.loop(timeout=1, use_poll=True, count=1)
@@ -187,35 +186,61 @@ def shutdown():
   print_stats()
 
 def usage():
-  print "usage: sparring.py [mode]"
-  print "modes:"
-  print "            -t run in TRANSPARENT mode"
-  print "            -h run in HALF        mode"
-  print "            -f run in FULL        mode"
+  print "usage: sparring.py -a ipaddress [-q queuenum] [mode] [-p portnum]"
+  print "-a ipaddress: specify own IPv4 address"
+  print "-q queuenuno: use given nfqueue-number instead of the default (0)"
+  print "       modes:"
+  print "              -t run in TRANSPARENT mode (default)"
+  print "              -h run in HALF        mode"
+  print "              -f run in FULL        mode"
+  print "-p portno   : half/full mode: listen locally on port portno (default: 5000)"
 
 if __name__ == '__main__':
+  global queueno
+  ip = None
   modeopt = 0
+  modes = ['TRANSPARENT', 'HALF', 'FULL']
+  port = 5000
+
   try:                                
-    opts, args = getopt.getopt(sys.argv[1:], "thf") 
+    opts, args = getopt.getopt(sys.argv[1:], "thfa:q:p:")
     for opt in opts:
-      if opt[0][1] == 'f':
+      if opt[0] == "-a":
+        ip = inet_aton(opt[1])
+      if opt[0] == "-f":
         modeopt = 2
-      elif opt[0][1] == 'h':
+      elif opt[0] == "-h":
         modeopt = 1
+      elif opt[0] == "-q":
+        queueno = opt[1]
+      elif opt[0] == "-p":
+        port = opt[1]
+        port = int(port)
       else:
         modeopt = 0
   except: #getopt.GetoptError, ValueError:           
     usage()                          
     sys.exit(2)           
+  if not ip:
+    usage()
+    sys.exit(2)
 
   mode = modes[modeopt]
-  print "sparring working in %s mode" % mode
-  global own_ip
+
+  banner = """                               _
+   _________  ____ ___________(_)___  ____ _
+  / ___/ __ \/ __ `/ ___/ ___/ / __ \/ __ `/
+ (__  ) /_/ / /_/ / /  / /  / / / / / /_/ / 
+/____/ .___/\__,_/_/  /_/  /_/_/ /_/\__, /  
+    /_/                            /____/   
+"""
+  print banner
+  print "mode: %s" % mode
   # TODO funktioniert nicht immer
   # eigentlich eine Liste (inkl. Broadcastadresse)
-  #own_ip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
-  own_ip = inet_aton('192.168.1.134') #inet_aton(gethostbyname_ex(gethostname())[2][0])
-  print "using %s as own IP address" % inet_ntoa(own_ip)
+  #ip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  #ip = inet_aton('192.168.1.127') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  print "own IP address: %s" % inet_ntoa(ip)
 
   cwd = os.path.dirname(os.path.realpath(__file__))
   sys.path.append(os.path.join(cwd, 'lib'))
@@ -224,16 +249,18 @@ if __name__ == '__main__':
   sys.path.append(os.path.join(cwd, 'utils'))
 
   import tcp, udp
-  tcp = tcp.Tcp(mode, applications, own_ip)
-  udp = udp.Udp(mode, applications, own_ip)
+  # import patched dpkt ip class
+  from ip_patched import ip
+  tcp = tcp.Tcp(mode, applications, ip)
+  udp = udp.Udp(mode, applications, ip)
 
   global app_dir
   app_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),'applications')
   load_applications(app_dir)
 
-  print "Loaded modules ",
+  print "loaded modules:",
   for application in applications:
     print application.protocols(),
   print 
 
-  setup(mode)
+  setup(mode, ip, port)
