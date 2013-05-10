@@ -1,0 +1,88 @@
+Installation
+============================
+
+Make sure all requirements listed below are met. Exceptions can be made for
+unused application modules, i.e. if you do not plan to use the IRC module, you
+won't need the twisted framework either.
+
+Move the sparring folder to a location of your choice.
+
+
+Requirements
+============================
+
+Linux kernel >=2.6.14
+
+IP Userspace queueing via NETLINK (symbol IP_NF_QUEUE) must  *NOT* be enabled!
+"NFQUEUE" target Support (symbol NETFILTER_XT_TARGET_NFQUEUE) kernel support
+
+  │     -> Networking support (NET [=y])
+  │       -> Networking options
+  │         -> Network packet filtering framework (Netfilter) (NETFILTER [=y])
+  │           -> Core Netfilter Configuration
+  │             -> Netfilter Xtables support (required for ip_tables) (NETFILTER_XTABLES [=y])     
+  │   Depends on: NET [=y] && INET [=y] && NETFILTER [=y] && NETFILTER_XTABLES [=y] && NETFILTER_ADVANCED [=y]
+
+IP: policy routing
+  │     -> Networking support (NET [=y])
+  |        -> Networking options
+  |           -> TCP/IP networking (INET [=y])
+  |              -> IP: advanced router (IP_ADVANCED_ROUTER [=y])
+
+
+TPROXY + TPROXY Target support in kernel, NF_CONNTRACK
+CONFIG_NETFILTER_XT_MATCH_SOCKET Socket match support
+CONFIG_NETFILTER_XT_TARGET_MARK  mark target support
+ebtables (BROUTING, redirect)
+
+iptables, ebtables and bridge-utils userland programs
+
+python (tested: 2.7)
+python-nfqueue (runtime: libnetfilter-queue, build-time: libnetfilter-queue, swig, cmake)
+dpkt (ip)
+webob (http module)
+twisted (irc module)
+dnslib (dns module)
+
+NO python modules providing a class named irc may be installed (for example
+python-irc)!
+
+Deployment
+============================
+You can put sparring anywhere you like. You also may want to link sparring.py
+to e.g. /usr/bin for your covenience.
+
+
+Usage
+============================
+
+You have to specify the IP address that sparring is supposed to interpret as
+its own outgoing (read: towards the internet) address on startup. This is down
+by using the mandatory -a switch.
+ 
+sparring can operate in three modes:
+
+ - TRANSPARENT
+   all traffic is passed to its original destination, logging and parsing of
+   known is done.
+
+ - HALF
+   like transparent mode but modules can alter, block or redirect traffic
+
+ - FULL
+   like transparent mode but no communication is passed to the rest of the
+   world, rather it's handled entirely by sparring
+
+
+On termination (SIGTERM,...) sparring will print default statistics in text form.
+
+
+Development
+============================
+
+New applications and transports may use the provided base classes to extend
+sparring's functionality.
+
+Please note that webob, dpkg and twisted had to be (monkey) patch to work
+properly (with sparring). See patches and patches2.
+
