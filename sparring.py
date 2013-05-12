@@ -197,7 +197,7 @@ def usage():
 
 if __name__ == '__main__':
   global queueno
-  ip = None
+  myip = None
   modeopt = 0
   modes = ['TRANSPARENT', 'HALF', 'FULL']
   port = 5000
@@ -206,7 +206,7 @@ if __name__ == '__main__':
     opts, args = getopt.getopt(sys.argv[1:], "thfa:q:p:")
     for opt in opts:
       if opt[0] == "-a":
-        ip = inet_aton(opt[1])
+        myip = inet_aton(opt[1])
       if opt[0] == "-f":
         modeopt = 2
       elif opt[0] == "-h":
@@ -221,7 +221,7 @@ if __name__ == '__main__':
   except: #getopt.GetoptError, ValueError:           
     usage()                          
     sys.exit(2)           
-  if not ip:
+  if not myip:
     usage()
     sys.exit(2)
 
@@ -238,9 +238,9 @@ if __name__ == '__main__':
   print "mode: %s" % mode
   # TODO funktioniert nicht immer
   # eigentlich eine Liste (inkl. Broadcastadresse)
-  #ip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
-  #ip = inet_aton('192.168.1.127') #inet_aton(gethostbyname_ex(gethostname())[2][0])
-  print "own IP address: %s" % inet_ntoa(ip)
+  #myip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  #myip = inet_aton('192.168.1.127') #inet_aton(gethostbyname_ex(gethostname())[2][0])
+  print "own IP address: %s" % inet_ntoa(myip)
 
   cwd = os.path.dirname(os.path.realpath(__file__))
   sys.path.append(os.path.join(cwd, 'lib'))
@@ -251,8 +251,8 @@ if __name__ == '__main__':
   import tcp, udp
   # import patched dpkt ip class
   from ip_patched import ip
-  tcp = tcp.Tcp(mode, applications, ip)
-  udp = udp.Udp(mode, applications, ip)
+  tcp = tcp.Tcp(mode, applications, myip)
+  udp = udp.Udp(mode, applications, myip)
 
   global app_dir
   app_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),'applications')
@@ -263,4 +263,4 @@ if __name__ == '__main__':
     print application.protocols(),
   print 
 
-  setup(mode, ip, port)
+  setup(mode, myip, port)

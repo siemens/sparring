@@ -3,6 +3,7 @@ from transport import Transport
 from connection import Connection
 from socket import  inet_ntoa
 from Queue import PriorityQueue
+#from pudb import set_trace; set_trace()
 
 class Tcp(Transport):
 
