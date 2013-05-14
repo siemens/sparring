@@ -80,34 +80,34 @@ ipt_rules() {
 
 setup_net() {
 
-	brctl addbr $BRIDGE
-	brctl addif $BRIDGE $DEV
+  brctl addbr $BRIDGE
+  brctl addif $BRIDGE $DEV
 
   for i in `seq 1 $TAPS`; do
-	  ip tuntap add tap${i} mode tap
+    ip tuntap add tap${i} mode tap
     brctl addif $BRIDGE tap${i}
   done
 
-	ip link set up dev $DEV
+  ip link set up dev $DEV
   for i in `seq 1 $TAPS`; do
     ip link set up dev tap${i}
   done
-	ip link set up dev $BRIDGE
-	
-	killall -q dhcpcd
-	#ip addr replace dev $DEV 0.0.0.0
+  ip link set up dev $BRIDGE
+  
+  killall -q dhcpcd
+  #ip addr replace dev $DEV 0.0.0.0
   # TODO bad: hard coded..
   ip addr del 192.168.1.100/24 dev eth0
-	dhcpcd -q $BRIDGE
-	
-	# stop nfqueue (binding) from failing:
-	# Initial settings will NOT get restored!
-	sysctl -qw net.core.rmem_default=8388608
-	sysctl -qw net.core.wmem_default=8388608
-	sysctl -qw net.ipv4.tcp_wmem='1048576 4194304 16777216'
-	sysctl -qw net.ipv4.tcp_rmem='1048576 4194304 16777216'
-	
-	set_nfqueue
+  dhcpcd -q $BRIDGE
+  
+  # stop nfqueue (binding) from failing:
+  # Initial settings will NOT get restored!
+  sysctl -qw net.core.rmem_default=8388608
+  sysctl -qw net.core.wmem_default=8388608
+  sysctl -qw net.ipv4.tcp_wmem='1048576 4194304 16777216'
+  sysctl -qw net.ipv4.tcp_rmem='1048576 4194304 16777216'
+  
+  set_nfqueue
 
 }
 
