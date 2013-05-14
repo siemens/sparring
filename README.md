@@ -25,3 +25,5 @@ They are:
   and only log connections and try to extract interesting data for supported
   protocols.
 
+The `scripts/` directory contains shell scripts to assist you in getting the
+somewhat tricky network setup required for analysis right.

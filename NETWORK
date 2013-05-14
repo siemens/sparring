@@ -1,0 +1,16 @@
+The network setup for TRANSPARENT mode is sketched like this:
+
+          ANALYSISHOST
+        +---------------+
+        |  , sparring   |      ANALYSISVM1 
+        |  , NFQUEUE    |   +--------------+
+        |  +------+     |   |              |
+ LAN +--+--- eth0 |  +--+---+---- nic0     |      ANALYSISVM2
+        |  | tap0----+  |   |192.168.1.10  |   +--------------+
+        |  | tap1----+  |   +--------------+   |              |
+        |  +------+  |  |                      |              |
+        |     br0    +--+----------------------+---- nic0     |
+        |192.168.1.109  |                      |192.168.1.11  |
+        +---------------+                      +--------------+
+
+The different VMs for analysis are separated by ebtables rules.
