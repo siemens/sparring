@@ -94,7 +94,7 @@ def nfq_setup(queueno):
   try:
     q.fast_open(queueno, AF_INET)
   except RuntimeError, e:
-    print "cannot bind to nf_queue %d: #%s Already in use?" % (queueno, e)
+    print "cannot bind to nf_queue %d: %s. Already in use?" % (queueno, e)
   q.set_queue_maxlen(5000)
   
   try:
@@ -158,7 +158,7 @@ def load_applications(app_dir):
       print "import of module %s failed: %s" % (module, e)
 
 def setup(mode, ip, port, queueno = 0):
-  if mode == 'TRANSPARENT':
+  if mode == modes[0]:
     nfq_setup(queueno)
   else:
     create_listener(ip, port)
@@ -201,6 +201,7 @@ if __name__ == '__main__':
   modeopt = 0
   modes = ['TRANSPARENT', 'HALF', 'FULL']
   port = 5000
+  queueno = 0
 
   try:                                
     opts, args = getopt.getopt(sys.argv[1:], "thfa:q:p:")
@@ -212,7 +213,7 @@ if __name__ == '__main__':
       elif opt[0] == "-h":
         modeopt = 1
       elif opt[0] == "-q":
-        queueno = opt[1]
+        queueno = int(opt[1])
       elif opt[0] == "-p":
         port = opt[1]
         port = int(port)
@@ -263,4 +264,4 @@ if __name__ == '__main__':
     print application.protocols(),
   print 
 
-  setup(mode, myip, port)
+  setup(mode, myip, port, queueno)
