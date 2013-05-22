@@ -36,3 +36,10 @@ class Connection():
     if self.transport:
       return self.transport.classify(self)
     return False
+
+  def __str__(self):
+    from socket import inet_ntoa
+    l = inet_ntoa(self.local[0])
+    r = inet_ntoa(self.remote[0])
+    
+    return '%s:%i - %s:%i' % (l, self.local[1], r, self.remote[1])
