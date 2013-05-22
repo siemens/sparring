@@ -82,12 +82,20 @@ class Dns(Application):
         answer = DNSRecord.parse(dns)
         rlist = []
         for x in answer.rr:
-          rlist.append(QTYPE.lookup(x.rtype) + " " + str(x.rname) + " " + str(x.rdata))
+          if x.rtype == 32:
+            rlist.append('NB' + " " + str(x.rname) + " " + str(x.rdata))
+          else:
+            rlist.append(QTYPE.lookup(x.rtype) + " " + str(x.rname) + " " + str(x.rdata))
         self.stats.log_response(conn.remote, rlist)
         conn.incoming.truncate(0)
         dns = ''
+      except KeyError:
+        print 'Unsupported DNS record type encountered. Raw data:'
+        print 'Connection: %s' % conn
+        print answer
+        break
       except Exception, e:
-        print 'yy',e
+        print 'Exception for incoming DNS:\n',e
         break
 
     return (question, answer)    
