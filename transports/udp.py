@@ -32,16 +32,19 @@ class Udp(Transport):
       if not dst in self.connections:
         self.newconnection(dst, src)
     
-      # TODO handle
       try:
         self.connections[dst].put_in(datagram.data)
+
         if not self.connections[dst].module:
           self.classify(self.connections[dst])
         if self.connections[dst].module:
           self.connections[dst].handle()
-      except Exception,e:
-        print "%s:%d -> %s:%d" % (inet_ntoa(src[0]), src[1], inet_ntoa(dst[0]), dst[1])
-        print str(e)
+      except KeyError:
+        # This is triggered by Multicast packets sent from _other_ hosts so
+        # we don't care for now.
+        # print "%s:%d -> %s:%d" % (inet_ntoa(src[0]), src[1], inet_ntoa(dst[0]), dst[1])
+        # 192.168.1.222:5353 -> 224.0.0.251:5353
+        pass
     
     return (0, nfqueue.NF_STOP)
 
