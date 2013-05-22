@@ -12,7 +12,7 @@
 # 5) Guests should be configured with static IP addresses as this allows for
 # better correlating them during the analysis (and chosing the right -a
 # parameter of sparring)
-# 6) TODO check availability of host-based services during analysis
+# 6) host services like SSH.. should be bound to 0.0.0.0 or the _bridge's_ IP
 # 7) After analysis, the physical interface is advised to reclaim a
 # DHCP-assigned IP address
 #
@@ -24,14 +24,12 @@
 # The following variables can be tuned for different environments. At present
 # there are no cmdline switches to set them as using local variables keeps the
 # invocation of this script rather simple.
-
-# physical interface used for non-host connectivity
+#
+# physical interface used for host-external connectivity
 DEV=eth0
 # number of tap-devices to use, starting at tap1
 TAPS=2
 BRIDGE=br0
-# default NFQUEUE-number
-QUEUE=${2-:0}
 
 reset_net() {
   unset_nfqueue
@@ -47,14 +45,15 @@ unset_nfqueue() {
 }
 
 ipt_rules() {
-
+for i in `seq 1 $TAPS`; do
   # if you want to analyse 'host' traffic in a non-virtualised environment,
   # enable the following two rules. You may disable th FORWARD-chain rule, too.
   #iptables $1 OUTPUT -p tcp -j NFQUEUE --queue-num $QUEUE
   #iptables $1 INPUT -p tcp -j NFQUEUE --queue-num $QUEUE
 
   # setup in VBox: bridged over tap0 <- eth0 -> br0
-  iptables $1 FORWARD -p tcp -j NFQUEUE --queue-num $QUEUE
+  iptables $1 FORWARD -p tcp -m physdev --physdev-is-bridged --physdev-out tap${i} -j NFQUEUE --queue-num $i
+  iptables $1 FORWARD -p tcp -m physdev --physdev-is-bridged --physdev-in  tap${i} -j NFQUEUE --queue-num $i
 
   # if you want to analyse 'host' traffic in a non-virtualised environment,
   # enable the following two rules. You may disable th FORWARD-chain rule, too.
@@ -62,8 +61,13 @@ ipt_rules() {
   #iptables $1 INPUT -p udp -j NFQUEUE --queue-num $QUEUE
 
   # setup in VBox: bridged over tap0 <- eth0 -> br0
-  iptables $1 FORWARD -p udp -j NFQUEUE --queue-num $QUEUE
+  iptables $1 FORWARD -p udp -m physdev --physdev-is-bridged --physdev-out tap${i} -j NFQUEUE --queue-num $i
+  iptables $1 FORWARD -p udp -m physdev --physdev-is-bridged --physdev-in  tap${i} -j NFQUEUE --queue-num $i
+done
 
+  # be really strict about everything that's not TCP or UDP: DROP it.
+  iptables $1 FORWARD -m physdev --physdev-is-bridged --physdev-out tap+ -j DROP
+  iptables $1 FORWARD -m physdev --physdev-is-bridged --physdev-in tap+ -j DROP
 
   # if all VMs are bridged together with eth0 in br0, disallow traffic between
   # VMs so they are isolated from each other:
@@ -73,6 +77,7 @@ ipt_rules() {
   else
     ebtables -P FORWARD ACCEPT
   fi
+
   ebtables $1 FORWARD -i $DEV -j ACCEPT
   ebtables $1 FORWARD -o $DEV -j ACCEPT
 
@@ -130,7 +135,7 @@ unset_net() {
 }
 
 usage() {
-  echo "$0 start|startipt|stopipt|stop|restart [NF-QUEUENUMBER]"
+  echo "$0 [start|startipt|stopipt|stop|restart]"
 }
 
 case $1 in
