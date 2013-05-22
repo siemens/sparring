@@ -22,8 +22,9 @@ IP: policy routing
 
 TPROXY + TPROXY Target support in kernel, NF_CONNTRACK
 CONFIG_NETFILTER_XT_MATCH_SOCKET Socket match support
-CONFIG_NETFILTER_XT_TARGET_MARK  mark target support
-ebtables (BROUTING, redirect, ip protocol, [transparent mode: ] FORWARD target)
+CONFIG_NETFILTER_XT_TARGET_MARK  mark target support [ half / full mode ]
+CONFIG_NETFILTER_XT_MATCH_PHYSDEV physdev match support
+ebtables (BROUTING, redirect, ip protocol, filter table, [transparent mode: ] FORWARD target)
 
 iptables, ebtables and bridge-utils userland programs
 

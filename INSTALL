@@ -7,7 +7,6 @@ won't need the twisted framework either.
 
 Move the sparring folder to a location of your choice.
 
-
 Requirements
 ============================
 
@@ -49,6 +48,7 @@ python-irc)!
 
 Deployment
 ============================
+
 You can put sparring anywhere you like. You also may want to link sparring.py
 to e.g. /usr/bin for your covenience.
 
@@ -83,6 +83,6 @@ Development
 New applications and transports may use the provided base classes to extend
 sparring's functionality.
 
-Please note that webob, dpkg and twisted had to be (monkey) patch to work
-properly (with sparring). See patches and patches2.
+Please note that webob, dpkg and twisted had to be (monkey) patched to work
+properly (with sparring). See utils/ for more details.
 
