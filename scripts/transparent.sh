@@ -1,4 +1,8 @@
 #!/bin/sh
+# Copyright (C) 2012-2013 sparring Developers.
+# This file is part of sparring - http://github.com/thomaspenteker/sparring
+# See the file 'docs/LICENSE' for copying permission.
+#
 # This script is part of sparring.
 # It can be used to set up network and operating system parameters needed for
 # analysis of traffic with sparring in TRANSPARENT mode.

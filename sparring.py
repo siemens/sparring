@@ -1,4 +1,8 @@
 #!/usr/bin/env python
+# Copyright (C) 2012-2013 sparring Developers.
+# This file is part of sparring - http://github.com/thomaspenteker/sparring
+# See the file 'docs/LICENSE' for copying permission.
+
 import sys, os, nfqueue, dpkt, user, signal
 #from dpkt import ip
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname, socket
