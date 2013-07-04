@@ -1,5 +1,6 @@
 from Queue import Queue
 import cStringIO
+from socket import inet_ntoa
 
 class Connection():
   def __init__(self, transport, (l, lport), (r, rport), module = None):
@@ -38,7 +39,6 @@ class Connection():
     return False
 
   def __str__(self):
-    from socket import inet_ntoa
     l = inet_ntoa(self.local[0])
     r = inet_ntoa(self.remote[0])
     
