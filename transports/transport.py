@@ -1,4 +1,6 @@
-from socket import inet_ntoa
+from socket import inet_ntoa, AF_INET, SOL_IP
+import asyncore, logging
+
 class Transport():
 
   def __init__(self, mode, applications, own_ip):
@@ -10,8 +12,12 @@ class Transport():
     self.own_ip = own_ip
     # Template for new connections
     self.connection = None
-    # Template for new handlers
-    self.handler = None
+    # Template for new (server) handlers in half and full mode. It is expected 
+    # to extend asyncore.dispatcher
+    self.server = None
+    # Template for type of socket to use for this transport
+    self.socktype = None
+    log = logging
 
   def items(self):
     return self.connections
@@ -30,8 +36,8 @@ class Transport():
       self.connections[dst] = self.connection(self, dst, src) 
       return self.connections[dst]
 
-  def newhandler(self, conn, sock):
-    return self.handler(conn, sock, map=None)
+  def newserver(self, port, transport, map):
+    return self.server(port, transport, map)
 
   def classify(self, connection):
     for application in self.applications:
@@ -47,3 +53,22 @@ class Transport():
       return self.handle_half(pkt)
     if self.mode == 'FULL':
       return self.handle_full(pkt)
+
+class Sparringserver(asyncore.dispatcher):
+
+  def __init__(self, port, transport, map=None):
+    self.transport = transport
+    asyncore.dispatcher.__init__(self, map=map)
+    #self.create_socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.create_socket(AF_INET, self.transport.socktype)
+    self.set_reuse_addr()
+    # #define IP_TRANSPARENT 19 from linux/in.h
+    # was not backported from python3 to python2:
+    # http://bugs.python.org/issue12809
+    self.socket.setsockopt(SOL_IP, 19, 1)
+    self.socket.setblocking(0)
+    self.bind(('127.0.0.1', port))
+
+  def handle_error(self):
+    log.error("ERROR aussen (Sparringserver)")
+    raise

@@ -1,17 +1,19 @@
 import dpkt, nfqueue
-from transport import Transport
-from connection import Connection
-from socket import  inet_ntoa
+from transport import Transport, Sparringserver
+from lib.connection import Connection
+from socket import  inet_ntoa, inet_aton, SOCK_STREAM
 from Queue import PriorityQueue
+import asyncore
 #from pudb import set_trace; set_trace()
 
 class Tcp(Transport):
 
   def __init__(self, mode, applications, own_ip):
     Transport.__init__(self, mode, applications, own_ip)
-    # Template class used for new connections
     self.connection = Tcpconnection
     self.name = 'TCP'
+    self.socktype = SOCK_STREAM
+    self.server = Tcpserver
 
   def handle_transparent(self, pkt):
       # TODO check needed that no unsolicited SYN package
@@ -104,10 +106,6 @@ class Tcpconnection(Connection):
 
     self.inseq = 0 # last ACKed sequence number
     self.inseq_max = 0 # for detection of out of order packets
-    self.state = 0
-    self.states = {0:'CLOSED', 1:'SYN_SENT', 2:'SYNACK_RECV', 3:'ESTABLISHED'}
-    self.out_transitions = {(0,'SYN'):1, (2,'ACK'):3}
-    self.in_transitions = {(1,'ACKSYN'):2 }
 
   def assemble_in(self):
     #while len(self.inbuf) > 0 and min(self.inbuf)[0] <= self.inseq:
@@ -144,18 +142,97 @@ class Tcpconnection(Connection):
     self.outqueue.put(t)
     self.assemble_out()
 
-  def transition(self, input=None, output=None):
-    if input:
+class Tcpserver(Sparringserver):
+  def __init__(self, port, transport, map):
+    self.map = map
+    Sparringserver.__init__(self, port, transport, map)
+    self.listen(5)
+
+  # TODO Teile eventuell nach handle_connect() auslagern, das erst spaeter im
+  # Verbindungsaufbau (erfolg) greift?
+  def handle_accept(self):
+    pair = self.accept()
+    if pair is None:
+      pass
+    else:
+      sock, addr = pair
+      # addr == client == sock.getpeername() == addr
+      # sock.getsockname() == us
+      # TODO noch nicht ganz richtig ;)
+      local = sock.getsockname()
+      # TODO may raise exception, too, WTF :)
+      # socket.error: [Errno 107] Transport endpoint is not connected
       try:
-        self.state = self.in_transitions[(self.state, input)]
-      except:
-        print "ERROR: illegal transition from: %s via %s" % (self.states[self.state], input)
-        return False
-    if output:
-      try:
-        self.state = self.out_transitions[(self.state, output)]
-      except:
-        print "ERROR: illegal transition from: %s via %s" % (self.states[self.state], output)
-        return False
+        remote = sock.getpeername()
+        dst = (inet_aton(remote[0]),remote[1]) 
+        src = (inet_aton(local[0]),local[1])
+        conn = self.transport.newconnection(src, dst)
+        handler = Tcphandler(conn, sock, self.map)
+
+      except Exception, e:
+        log.warn("tcp: while accepting new connection"
+        log.warn(e)
+
+class Tcphandler(asyncore.dispatcher):
+
+  def __init__(self, conn, sock=None, map=None):
+      asyncore.dispatcher.__init__(self, sock, map)
+      self.conn = conn
+
+  def handle_read(self):
+    data = self.recv(8192)
+    if data:
+      # echo halt...
+      #print "sending back %s" % data
+      #self.send(data)
+
+      # we don't use conn.put_in() because there's no need for TCP 
+      # connections to reassemble the data as our underlying socket did that
+      # already for us. So just fill the outgoing buffer
+      self.conn.outgoing.write(data)
+      if self.conn.classify():
+        self.conn.handle()
+      else:
+        log.debug("tcp: application protocol not identified")
+        log.debug("tcp: " + self.conn)
+      if self.writable():
+        self.handle_write()
+  
+  def writable(self):
+    #self.conn.handle()
+    #return True
+    return self.conn.in_extra and 'buffer' in self.conn.in_extra and self.conn.in_extra['buffer']
+
+  def readable(self):
     return True
+
+  def handle_write(self):
+    try:
+      #self.conn.handle()
+      sent = self.send(self.conn.in_extra['buffer'])
+      #print "sendt to client: %s" % self.conn.in_extra['buffer'][:sent]
+      self.conn.in_extra['buffer'] = self.conn.in_extra['buffer'][sent:]
+    except Exception, e:
+      # TODO ja doch macht schon was : )
+      log.warn("tcp: while handling outgoing data"
+      log.warn(e)
+      return
+
+    # application has no work left and all data was sent
+    if self.conn.in_extra['close'] and not self.conn.in_extra['buffer']:
+      self.handle_close()
+
+  def handle_close(self):
+    """ seems to get called multiple times for the same connection, so pay
+    attention wether self.conn still is set or not """
+    self.close()
+    return
+
+    if self.conn.incoming.getvalue() or self.conn.outgoing.getvalue():
+      log.warn("tcp: not all data handled")
+
+    del self.conn # TODO aus oberer instanz loeschen?
+    log.debug("tcp: closing socket")
+    self.close()
+
 
