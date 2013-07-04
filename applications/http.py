@@ -80,7 +80,6 @@ class Http(Application):
       self.stats.log_get(conn.remote, http.url)
 
     if http.method == 'POST':
-      print "found POST"
       try:
         import shutil, tempfile
         filename = None
@@ -107,7 +106,7 @@ class Http(Application):
       except Exception,e:
         # stuff the query back into the send buffer
         conn.outgoing = qry + conn.outgoing
-        print "-----%s\n>>>\n%s<<<" % (e, conn.outgoing.getvalue())
+        log.warn("http: %s\n>>>\n%s<<<" % (e, conn.outgoing.getvalue()))
 
   def log_response(self, http, conn):
     if http.content_type != 'text/html':
@@ -170,27 +169,6 @@ class Http(Application):
     size += 2
     size += len(http.body)
     return (http, size)
-
-  def setup(self, conn):
-    conn.in_extra = {}
-    if self.mode == 'TRANSPARENT':
-      pass
-    elif self.mode == 'HALF':
-      conn.in_extra['buffer'] = ""
-      # close this connection
-      conn.in_extra['close'] = False
-    elif self.mode == 'FULL':
-      conn.in_extra['buffer'] = ""
-      # close this connection
-      conn.in_extra['close'] = False
-
-#  def handle(self, conn):
-#    if self.mode == 'TRANSPARENT':
-#      self.handle_transparent(conn)
-#    if self.mode == 'HALF':
-#      self.handle_half(conn)
-#    if self.mode == 'FULL':
-#      self.handle_full(conn)
 
   def handle_transparent(self, conn):
     request = None
@@ -262,16 +240,6 @@ class Http(Application):
       conn.in_extra['buffer'] = 'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: ' + str(len(response_body)) + '\r\n\r\n' + response_body
       conn.in_extra['close'] = True
 
-  def decode_body(self, http):
-    if http.content_encoding == 'gzip':
-      return self.fast_unzip(http.body)  
-    if http.content_encoding == 'identity':
-      return http.body
-    if http.content_encoding == 'bzip2':
-      return self.fast_unbzip(http.body)  
-    if http.content_encoding == 'deflate':
-      return self.fast_deflate(http.body)  
-      
   def get_encoding(self, headers):
     # TODO
     """ return enconding of given headers dictionary.
@@ -279,32 +247,6 @@ class Http(Application):
     for header, value in headers.items(): 
       if header.lower() == 'content-encoding':
         return value.lower()        
-
-  def fast_deflate(self, comp):
-    try:
-      import zlib
-      return zlib.decompress(comp)
-    except:
-      print "no zlib payload"
-
-  def fast_unbzip(self, comp):
-    try:
-      import bz2
-      return bz2.decompress(comp)
-    except:
-      print "no bz2 payload"
-
-  def fast_unzip(self, comp):
-    # TODO was passiert bei exception und return dec?
-    try:
-      import gzip
-      handle = cStringIO.StringIO(comp)
-      gzip_handle = gzip.GzipFile(fileobj=handle)
-      dec = gzip_handle.read()
-      gzip_handle.close()
-    except IOError:
-      print "no gzip payload"          
-    return dec
 
   def uri2serverport(self, uri):
     u = urlparse.urlparse(uri)

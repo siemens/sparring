@@ -101,7 +101,7 @@ class Irc(Application):
           pass
       # other commands are ignored for now
       except Exception, e:
-        print e
+        log.warning("irc: error for incoming data: %s", e)
         pass
     return parsed 
 

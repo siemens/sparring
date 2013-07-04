@@ -1,3 +1,4 @@
+import logging
 
 class Application():
   def __init__(self, mode):
@@ -12,6 +13,7 @@ class Application():
       self.handle_ = self.handle_half
     elif self.mode == 'FULL':
       self.handle_ = self.handle_full
+    log = logging
 
   def classify(self, conn):
     """try to classify the specified connection
@@ -47,7 +49,7 @@ class Application():
     raise NotImplementedError
 
   def get_stats(self):
-    print self.stats
+    return self.stats
 
   def protocols(self):
     return self.protos
@@ -56,5 +58,15 @@ class Application():
     """this function is meant to be called after a successful protocol
     identification for setting up the required entries in self.conn etc.
     """
-    pass
+    conn.in_extra = {}
+    if self.mode == 'TRANSPARENT':
+      pass
+    elif self.mode == 'HALF':
+      conn.in_extra['buffer'] = ""
+      # close this connection
+      conn.in_extra['close'] = False
+    elif self.mode == 'FULL':
+      conn.in_extra['buffer'] = ""
+      # close this connection
+      conn.in_extra['close'] = False
 

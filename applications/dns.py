@@ -24,9 +24,6 @@ class Dns(Application):
     self.protos = ['dns']
     #print '%s initialisiert [%s]' % (__name__,self.mode)
 
-  def setup(self, conn):
-    conn.in_extra = {}
-
   def classify(self, conn):
     ret = False
 
@@ -72,7 +69,7 @@ class Dns(Application):
         conn.outgoing.truncate(0)
         dns = ''
       except Exception, e:
-        print 'xx',str(e)
+        log.warn('dns: DNSRecord.parse failed: %s', str(e))
         break
 
     dns = conn.incoming.getvalue()
@@ -90,12 +87,12 @@ class Dns(Application):
         conn.incoming.truncate(0)
         dns = ''
       except KeyError:
-        print 'Unsupported DNS record type encountered. Raw data:'
-        print 'Connection: %s' % conn
-        print answer
+        log.warn('dns: Unsupported DNS record type encountered. Raw data:')
+        log.warn('Connection: %s' % conn)
+        log.warn(answer)
         break
       except Exception, e:
-        print 'Exception for incoming DNS:\n',e
+        log.warn('dns: Exception for incoming DNS:\n',e)
         break
 
     return (question, answer)    
@@ -106,7 +103,7 @@ class Dns(Application):
     question, answer = self.handle_transparent(conn)
     assert(not answer)
     if question:
-      print question.send(conn.remote[0])
+      log.warn('dns: ' + question.send(conn.remote[0]))
 
     conn.in_extra['close'] = True
     # spawn new request, send
@@ -122,5 +119,8 @@ class Dns(Application):
     if question:
       a = question.reply(data="1.2.3.4")
       conn.in_extra['buffer'] = a.pack()
+      # this is done again to record our artifical answer, too
+      conn.incoming.write(a.pack())
+      self.handle_transparent(conn)
     pass
 
