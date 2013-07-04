@@ -170,7 +170,7 @@ class Tcpserver(Sparringserver):
         handler = Tcphandler(conn, sock, self.map)
 
       except Exception, e:
-        log.warn("tcp: while accepting new connection"
+        log.warn("tcp: while accepting new connection")
         log.warn(e)
 
 class Tcphandler(asyncore.dispatcher):
@@ -214,7 +214,7 @@ class Tcphandler(asyncore.dispatcher):
       self.conn.in_extra['buffer'] = self.conn.in_extra['buffer'][sent:]
     except Exception, e:
       # TODO ja doch macht schon was : )
-      log.warn("tcp: while handling outgoing data"
+      log.warn("tcp: while handling outgoing data")
       log.warn(e)
       return
 
