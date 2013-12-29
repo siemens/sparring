@@ -1,0 +1,25 @@
+(snort) rules for detecting attack patterns?
+replace inet_{ntoa,aton} [with htons]
+
+handle_{half,full}
+  recheck cStringIO-objects for needed .seek(n) before access (at least in irc.py)
+
+http.py:
+  fix POST (again) (at least for half mode)
+
+transport/*:
+  connection recognition is done by the local ip:port-pair.
+  this is suboptimal due to the fact that ports *will* be reused after some
+  time so bad things will happen in this case (stats overwritten/mixed up)
+
+transport/*: catch key error in case of spurious packets (or wrongly set
+-a parameter) example: 
+	Traceback (most recent call last):
+	  File "./sparring.py", line 35, in cb
+	    ret = tcp.handle(pkt)
+	  File "/home/tek/sparring/transports/transport.py", line 45, in handle
+	    return self.handle_transparent(pkt)
+	  File "/home/tek/sparring/transports/tcp.py", line 43, in handle_transparent
+	    self.connections[dst].outseq = segment.ack
+	KeyError: ('\xc0\xa8\x01\x0b', 1028)
+
