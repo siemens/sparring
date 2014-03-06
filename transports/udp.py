@@ -15,10 +15,10 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-import nfqueue 
 from transport import Transport, Sparringserver
-from connection import Connection
+from lib.connection import Connection
 from socket import  inet_ntoa, inet_aton, SOCK_DGRAM, socket, AF_INET
+import nfqueue
 
 class Udp(Transport):
 

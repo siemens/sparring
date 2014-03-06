@@ -119,7 +119,8 @@ setup_net() {
   killall -q dhcpcd
   #ip addr replace dev $DEV 0.0.0.0
   # TODO bad: hard coded..
-  ip addr del 192.168.1.100/24 dev eth0
+  #ip addr del 192.168.1.100/24 dev eth0
+  dhcpcd -k eth0
   dhcpcd -q $BRIDGE
   
   # stop nfqueue (binding) from failing:

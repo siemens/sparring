@@ -57,7 +57,7 @@ Usage
 ============================
 
 You have to specify the IP address that sparring is supposed to interpret as
-its own outgoing (read: towards the internet) address on startup. This is down
+its own outgoing (read: towards the internet) address on startup. This is done
 by using the mandatory -a switch.
  
 sparring can operate in three modes:

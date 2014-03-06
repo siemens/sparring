@@ -1,4 +1,7 @@
-(snort) rules for detecting attack patterns?
+cuckoo
+  integrate as auxiliary module
+  open problem: sparring needs root permissions at least for nfqueue-related operations
+
 replace inet_{ntoa,aton} [with htons]
 
 handle_{half,full}

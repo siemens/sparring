@@ -15,12 +15,11 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-import dpkt, nfqueue
 from transport import Transport, Sparringserver
 from lib.connection import Connection
 from socket import  inet_ntoa, inet_aton, SOCK_STREAM
 from Queue import PriorityQueue
-import asyncore
+import dpkt, nfqueue, asyncore
 #from pudb import set_trace; set_trace()
 
 class Tcp(Transport):
