@@ -16,8 +16,8 @@
 #
 
 from Queue import Queue
-import cStringIO
 from socket import inet_ntoa
+import cStringIO
 
 class Connection():
   def __init__(self, transport, (l, lport), (r, rport), module = None):

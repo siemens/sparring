@@ -15,13 +15,13 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-from stats import Stats
-import urlparse
-import webob, cStringIO, re
+from lib.stats import Stats
+from utils.misc import ltruncate
+from applications.application import Application
 from socket import inet_ntoa, inet_aton
 from os import SEEK_CUR, SEEK_END, SEEK_SET
-from misc import ltruncate
-from application import Application
+import webob, cStringIO, re
+import urlparse
 #from pudb import set_trace; set_trace()
 
 def init(mode):

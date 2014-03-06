@@ -15,12 +15,12 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-from stats import Stats
-import cStringIO, re, irclib, os, hashlib
+from lib.stats import Stats
+from utils.misc import ltruncate
+from utils.ircd import ircd
+from applications.application import Application
 from socket import inet_ntoa, inet_aton
-from application import Application
-from misc import ltruncate
-from ircd import ircd 
+import cStringIO, re, irclib, os, hashlib
 #from pudb import set_trace; set_trace()
 
 def init(mode):

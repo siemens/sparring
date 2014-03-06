@@ -18,13 +18,18 @@
 #
 
 import sys, os, nfqueue, dpkt, user, signal
-#from dpkt import ip
 from socket import AF_INET, AF_INET6, inet_ntoa, inet_aton, gethostbyname_ex, gethostname, socket
 from time import sleep
 import getopt
 import socket
 import logging
+import transports.tcp as tcp
+import transports.udp as udp
+#from dpkt import ip
+# import patched dpkt ip class
+from utils.ip_patched import ip
 #from pudb import set_trace; set_trace()
+# local imports below!
 
 MODES = ['TRANSPARENT', 'HALF', 'FULL']
 
@@ -33,8 +38,7 @@ def handle_term(arg1, arg2):
   
 
 class Sparring(object):
-  def __init__(self, mode, myip, port = 5001, queueno = 1):
-    # local imports below!
+  def __init__(self, mode, myip, port = 5001, queueno = 0):
     self.count = 0
     self.nodata_count = 0
     self.applications = []
@@ -42,21 +46,12 @@ class Sparring(object):
     self.udp = None
     log = logging
 
-    cwd = os.path.dirname(os.path.realpath(__file__))
-    sys.path.append(os.path.join(cwd, 'lib'))
-    sys.path.append(os.path.join(cwd, 'transports'))
-    # helper classes for applications/*.py
-    sys.path.append(os.path.join(cwd, 'utils'))
-  
-    import tcp, udp
-    # import patched dpkt ip class
-    from ip_patched import ip
     self.tcp = tcp.Tcp(mode, self.applications, myip)
     self.udp = udp.Udp(mode, self.applications, myip)
   
     self.app_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)),'applications')
     self.load_applications(self.app_dir, mode)
-  
+
     if __name__ == '__main__':
       modules = "loaded modules:"
       for application in self.applications:
@@ -73,17 +68,17 @@ class Sparring(object):
       # spawn IP packet
       try:
         pkt = ip.IP(data)
-      except:
-        log.warning("unsupported Layer 3 protocol or broken IP packet dropped")
+      except Exception, e:
+        log.warning("unsupported Layer 3 protocol or broken IP packet dropped: %s" % e)
         payload.set_verdict(nfqueue.NF_DROP)
         return
   
       if pkt.p == dpkt.ip.IP_PROTO_TCP:
-        ret = tcp.handle(pkt)
+        ret = self.tcp.handle(pkt)
         payload.set_verdict(ret[1])
         self.nodata_count += ret[0]
       elif pkt.p == dpkt.ip.IP_PROTO_UDP:
-        ret = udp.handle(pkt)
+        ret = self.udp.handle(pkt)
         payload.set_verdict(ret[1])
         self.nodata_count += ret[0]
       elif pkt.p == dpkt.ip.IP_PROTO_ICMP:
@@ -103,7 +98,7 @@ class Sparring(object):
   def print_connections(self):
     # TODO noch offene Verbindungen (i.e. len(data[1]) != 0) mit FIN,ACK
     # 'abschliessen'? -> NICHT im transparenten Modus
-    for id, conn in tcp.connections.items() + udp.connections.items():
+    for id, conn in self.tcp.connections.items() + self.udp.connections.items():
       #print "  inheap lang: %d incoming: %d" % (len(conn.inheap),len(conn.incoming))
       #print "  last ACKed : %d max seq: %d     " % (conn.inseq, conn.inseq_max)
       log.info("%s:%d" % (inet_ntoa(conn.remote[0]), conn.remote[1]))
@@ -116,7 +111,8 @@ class Sparring(object):
     try:
       q.fast_open(queueno, AF_INET)
     except RuntimeError, e:
-      log.error("cannot bind to nf_queue %d: %s. Already in use?" % (queueno, e))
+      log.error("cannot bind to nf_queue %d: %s. Already in use or not root?" % (queueno, e))
+      return False
     q.set_queue_maxlen(5000)
        
     # won't work as try_run() still requires CAP_? ...
@@ -129,6 +125,7 @@ class Sparring(object):
   
     q.unbind(AF_INET)
     q.close()
+    return True
   
   def print_stats(self):
     for application in self.applications:
@@ -188,7 +185,8 @@ class Sparring(object):
   
   def setup(self, mode, ip, port, queueno = 0):
     if mode == MODES[0]:
-      self.nfq_setup(queueno)
+      if not self.nfq_setup(queueno):
+        return
     else:
       self.create_listener(ip, port)
     self.shutdown()
@@ -207,6 +205,8 @@ class Sparring(object):
     
   def shutdown(self):
     log.info("\n%d packets handled (%d without data)" % (self.count, self.nodata_count))
+    if log.getLogger().level <= log.DEBUG:
+ 
 
     #print "Connection table"
     #print_connections()
@@ -225,17 +225,17 @@ def usage():
   print "              -h run in HALF        mode"
   print "              -f run in FULL        mode"
   print "-p portno   : half/full mode: listen locally on port portno (default: 5000)"
-  print "-q quiet    : suppress normal output"
+  print "-v verbose  : emit info messages during simulation"
 
 if __name__ == '__main__':
   myip = None
   modeopt = 0
   port = 5000
   queueno = 0
-  verbose = True
+  verbose = False
 
   try:                                
-    opts, args = getopt.getopt(sys.argv[1:], "thfa:n:p:q")
+    opts, args = getopt.getopt(sys.argv[1:], "thfa:n:p:v")
     for opt in opts:
       if opt[0] == "-a":
         myip = inet_aton(opt[1])
@@ -248,8 +248,8 @@ if __name__ == '__main__':
       elif opt[0] == "-p":
         port = opt[1]
         port = int(port)
-      elif opt[0] == "-q":
-        verbose = False
+      elif opt[0] == "-v":
+        verbose = True
       else:
         modeopt = 0
   except: #getopt.GetoptError, ValueError:           
@@ -263,8 +263,9 @@ if __name__ == '__main__':
   mode = MODES[modeopt]
 
   log = logging
+  log.getLogger().setLevel(logging.INFO if verbose else logging.WARNING)
 
-  log.info("""                  _
+  log.info("""                     _
    _________  ____ ___________(_)___  ____ _
   / ___/ __ \/ __ `/ ___/ ___/ / __ \/ __ `/
  (__  ) /_/ / /_/ / /  / /  / / / / / /_/ / 
@@ -278,5 +279,5 @@ if __name__ == '__main__':
   #myip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   #myip = inet_aton('192.168.1.127') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   log.info("own IP address: %s" % inet_ntoa(myip))
-  s = Sparring(mode, myip, port)
+  s = Sparring(mode, myip, port, queueno)
 

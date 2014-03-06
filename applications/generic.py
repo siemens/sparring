@@ -15,10 +15,10 @@
 # Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 #
 
-from dnslib import *
-from stats import Stats
-from application import Application
+from lib.stats import Stats
+from applications.application import Application
 from os import SEEK_END
+from dnslib import *
 
 def init(mode):
   return Generic(mode)
