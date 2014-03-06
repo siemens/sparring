@@ -206,10 +206,8 @@ class Sparring(object):
   def shutdown(self):
     log.info("\n%d packets handled (%d without data)" % (self.count, self.nodata_count))
     if log.getLogger().level <= log.DEBUG:
- 
-
-    #print "Connection table"
-    #print_connections()
+      print "Connection table"
+      print_connections()
   
     # gather generic stats about unknown connections
     self.identify_generic()
