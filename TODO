@@ -26,3 +26,10 @@ transport/*: catch key error in case of spurious packets (or wrongly set
 	    self.connections[dst].outseq = segment.ack
 	KeyError: ('\xc0\xa8\x01\x0b', 1028)
 
+idea: use two queues per machine to identify incoming and outgoing traffic
+without knowing the IP address(es) of the virtual machine. This has
+implications on the detection and management of our list of connections!
+
+Long term analysis requires a proper clenaup of the connections data structure
+as TCP/UDP ports _will_ be reused and new packets thus may be attributed to
+old connections.

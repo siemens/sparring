@@ -38,7 +38,7 @@ def handle_term(arg1, arg2):
   
 
 class Sparring(object):
-  def __init__(self, mode, myip, port = 5001, queueno = 0):
+  def __init__(self, mode, myip, port = 5001, queueno = 0, jfile = None):
     self.count = 0
     self.nodata_count = 0
     self.applications = []
@@ -120,21 +120,39 @@ class Sparring(object):
 
     try:
       q.try_run()
-    except KeyboardInterrupt, e:
+    except KeyboardInterrupt:
         pass
   
     q.unbind(AF_INET)
     q.close()
     return True
-  
+
   def print_stats(self):
+    if jfile:
+      self.print_json()
+    else:
+      self.print_text()
+
+  def print_json(self):
+    import json
+    jdata = {}
+    for application in self.applications:
+      if [method for method in dir(application) if callable(getattr(application, method))].count('get_stats') == 1:
+        # OR: write an encoder that will handle tuples and (ip, port) pairs
+        application.stats.json()
+        jdata[application.protocols()[0]] =  application.stats.cats
+
+    try:
+      f = open(jfile, 'w')
+      json.dump({'Network_sparring': jdata}, f, indent=2)
+      f.close()
+    except Exception, e:
+      log.error("could not dump JSON data to jfile: %s" % e)
+
+  def print_text(self):
     for application in self.applications:
       if [method for method in dir(application) if callable(getattr(application, method))].count('get_stats') == 1:
         print("\n STATISTICS for protocol %s" % application.protocols()[0])
-        #print application.get_stats()
-        if application.protos == ['dns']:
-          #application.stats.log_response('pooh', 'what the?')
-          pass
         print(application.stats)
       else:
         log.warning("no stats available for protocol %s" % application.protocols()[0])
@@ -200,11 +218,12 @@ class Sparring(object):
       asyncore.loop(1, True, servers) 
     except KeyboardInterrupt, e:
       pass
+
     except asyncore.ExitNow, e:
       pass
     
   def shutdown(self):
-    log.info("\n%d packets handled (%d without data)" % (self.count, self.nodata_count))
+    log.info("%d packets handled (%d without data)" % (self.count, self.nodata_count))
     if log.getLogger().level <= log.DEBUG:
       print "Connection table"
       print_connections()
@@ -222,6 +241,7 @@ def usage():
   print "              -t run in TRANSPARENT mode (default)"
   print "              -h run in HALF        mode"
   print "              -f run in FULL        mode"
+  print "-j filename : convert results to json and write to filename"
   print "-p portno   : half/full mode: listen locally on port portno (default: 5000)"
   print "-v verbose  : emit info messages during simulation"
 
@@ -231,9 +251,10 @@ if __name__ == '__main__':
   port = 5000
   queueno = 0
   verbose = False
+  jfile = None
 
   try:                                
-    opts, args = getopt.getopt(sys.argv[1:], "thfa:n:p:v")
+    opts, args = getopt.getopt(sys.argv[1:], "thfa:n:p:j:v")
     for opt in opts:
       if opt[0] == "-a":
         myip = inet_aton(opt[1])
@@ -243,6 +264,8 @@ if __name__ == '__main__':
         modeopt = 1
       elif opt[0] == "-n":
         queueno = int(opt[1])
+      elif opt[0] == "-j":
+        jfile = opt[1]
       elif opt[0] == "-p":
         port = opt[1]
         port = int(port)
@@ -277,5 +300,5 @@ if __name__ == '__main__':
   #myip = inet_aton('172.16.0.7') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   #myip = inet_aton('192.168.1.127') #inet_aton(gethostbyname_ex(gethostname())[2][0])
   log.info("own IP address: %s" % inet_ntoa(myip))
-  s = Sparring(mode, myip, port, queueno)
+  s = Sparring(mode, myip, port, queueno, jfile)
 

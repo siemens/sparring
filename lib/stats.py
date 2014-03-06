@@ -56,6 +56,18 @@ class Stats():
     except UnicodeDecodeError:
       return "unicodeDecodeError"
 
+  """ call this before json.dump-ing stats to make sure ip addresses are converted """
+  def json(self):
+    cats = self.cats
+    if cats.has_key('Server'):
+      for key in cats['Server'].keys():
+        try:
+          newkey = "%s:%d" % (inet_ntoa(key[0]), key[1])
+          self.cats['Server'][newkey] = self.cats['Server'][key]
+          del self.cats['Server'][key]
+        except:
+          pass
+
   def __str__(self):
     return self.p(self.cats, 0)
 
